@@ -26,6 +26,27 @@ Codex-Pro-Launcher is an external enhancement launcher for Codex App. It does no
 
 Its goal is not to replace Codex App or modify the original Codex App installation files. It keeps the official client experience intact while filling in high-frequency workflow gaps that interrupt daily development.
 
+## ⚡ Quick Start
+
+Download the latest Windows release asset from [GitHub Releases](https://github.com/FcsVorfeed/Codex-Pro-Launcher/releases):
+
+- Windows: `Codex-Pro-Launcher-vX.Y.Z.exe`
+
+Before launching, install and sign in to the official Codex Desktop app.
+
+Double-click `Codex-Pro-Launcher-vX.Y.Z.exe`. Codex-Pro-Launcher will start or reuse the official Codex App, bring it to the front, and inject the enhancement modules through CDP.
+
+If you want the stock Codex experience, launch the official Codex App directly. Codex-Pro-Launcher does not replace Codex and does not modify the Codex installation files.
+
+For local development, checking, and release build commands, see [Development](#development).
+
+## 💬 Community
+
+Join the community channels to discuss usage, report issues, or suggest new features:
+
+- Discord: <https://discord.gg/QQ43rEd88Q>
+- QQ group: `104016126`
+
 ## 🌿 Design Philosophy
 
 The starting point is simple: Codex is already part of daily work, and I do not want an extra tool to become another thing to manage. Codex-Pro-Launcher is meant to feel like a quiet layer around the existing workflow. Most of the time it stays out of the way; when you need usage context, latency signals, conversation history, or a way to continue work on another machine, the information is already close at hand.
@@ -54,54 +75,6 @@ The starting point is simple: Codex is already part of daily work, and I do not 
 | ⚙️ Settings center | Organizes feature switches, behavior, appearance, and sync options by module | Implemented |
 | 🎨 Appearance tweaks | Adds background images, font overrides, startup sidebar behavior, and other experience refinements | Implemented |
 | 🔄 Settings / pet / conversation archive sync | Syncs multi-device workflow state after the user configures the connection | Implemented |
-
-## ⚡ Quick Start
-
-> The public repository is used to present and review the client source code. Private materials, internal configuration, and release process notes are kept outside the public repository.
-
-In a local development workspace, if a private build is already available, double-click:
-
-```powershell
-private/bin/Codex-Pro-Launcher.exe
-```
-
-Or run from the repository root:
-
-```powershell
-npm run launch
-```
-
-Refresh the injected source in the current Codex window:
-
-```powershell
-npm run inject
-```
-
-Run the full check suite:
-
-```powershell
-npm run check
-```
-
-Prepare the next formal release version. Without arguments, this bumps patch:
-
-```powershell
-npm run release:version
-```
-
-To set an explicit version:
-
-```powershell
-npm run release:version -- --version 1.0.0
-```
-
-Build the release Rust single-file executable:
-
-```powershell
-npm run build:rust
-```
-
-The build writes both `private/build/rust/Codex-Pro-Launcher.exe` as the fixed latest artifact and `private/build/rust/Codex-Pro-Launcher-vX.Y.Z.exe` as the GitHub Release upload asset.
 
 ## 🧩 Feature Preview
 
@@ -197,11 +170,16 @@ Codex-Pro-Launcher depends on Codex App page structure and discoverable official
 ## Development
 
 ```powershell
+npm run launch
 npm run doctor
 npm run inject
 npm run check
+npm run release:version
+npm run release:version -- --version 1.0.0
 npm run build:rust
 ```
+
+The release build writes both `private/build/rust/Codex-Pro-Launcher.exe` as the fixed latest artifact and `private/build/rust/Codex-Pro-Launcher-vX.Y.Z.exe` as the GitHub Release upload asset.
 
 For local development, install the public-boundary Git hooks once per clone:
 

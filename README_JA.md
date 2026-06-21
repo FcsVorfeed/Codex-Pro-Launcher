@@ -26,6 +26,27 @@ Codex-Pro-Launcher は、Codex App のための外部拡張ランチャーです
 
 目的は Codex App を置き換えることではありません。公式クライアントの体験を保ったまま、日々の開発で何度も気になる小さな不便や、集中を切らしやすい作業を補うことです。
 
+## ⚡ クイックスタート
+
+[GitHub Releases](https://github.com/FcsVorfeed/Codex-Pro-Launcher/releases) から最新の Windows リリースファイルをダウンロードします。
+
+- Windows: `Codex-Pro-Launcher-vX.Y.Z.exe`
+
+起動する前に、公式 Codex Desktop をインストールしてサインインしておいてください。
+
+`Codex-Pro-Launcher-vX.Y.Z.exe` をダブルクリックします。Codex-Pro-Launcher は公式 Codex App を起動または再利用し、前面に表示して、CDP 経由で拡張モジュールを注入します。
+
+素の Codex 体験に戻したい場合は、公式 Codex App を直接起動してください。Codex-Pro-Launcher は Codex を置き換えず、Codex のインストールファイルも変更しません。
+
+ローカル開発、チェック、リリースビルドのコマンドは、下の[開発](#開発)を参照してください。
+
+## 💬 コミュニティ
+
+使い方の相談、不具合報告、新機能の提案は、次のコミュニティチャンネルで受け付けています。
+
+- Discord: <https://discord.gg/QQ43rEd88Q>
+- QQ グループ: `104016126`
+
 ## 🌿 設計思想
 
 出発点はとてもシンプルです。Codex はすでに毎日の作業の一部なので、追加ツールが新しい負担になってほしくありません。Codex-Pro-Launcher は、既存のワークフローのまわりにある静かなレイヤーのような存在を目指しています。普段は前に出ず、使用量、遅延、会話履歴、別のPCで作業を続けたい場面で、必要な情報が自然に手元にある状態を目指します。
@@ -54,54 +75,6 @@ Codex-Pro-Launcher は、Codex App のための外部拡張ランチャーです
 | ⚙️ 設定センター | 機能スイッチ、挙動、外観、同期設定をモジュールごとに整理 | 実装済み |
 | 🎨 外観調整 | 背景、フォント上書き、起動時サイドバーなどの体験を微調整 | 実装済み |
 | 🔄 設定 / ペット / 会話アーカイブ同期 | ユーザーが接続を設定した後、複数デバイスの作業状態を同期 | 実装済み |
-
-## ⚡ クイックスタート
-
-> 公開リポジトリは、クライアント側のソースコードを見せ、レビューできるようにするためのものです。個人情報、内部設定、リリース手順に関する資料は公開リポジトリには含めません。
-
-ローカル開発環境で private ビルドがすでにある場合は、次をダブルクリックします。
-
-```powershell
-private/bin/Codex-Pro-Launcher.exe
-```
-
-またはリポジトリのルートで実行します。
-
-```powershell
-npm run launch
-```
-
-現在の Codex ウィンドウへ注入済みソースを更新します。
-
-```powershell
-npm run inject
-```
-
-チェック一式を実行します。
-
-```powershell
-npm run check
-```
-
-次の正式リリース版を準備します。引数なしの場合は patch を 1 つ進めます。
-
-```powershell
-npm run release:version
-```
-
-明示的にバージョンを指定する場合:
-
-```powershell
-npm run release:version -- --version 1.0.0
-```
-
-正式な Rust 単一ファイル実行ファイルをビルドします。
-
-```powershell
-npm run build:rust
-```
-
-ビルド後は `private/build/rust/Codex-Pro-Launcher.exe` が固定の最新成果物、`private/build/rust/Codex-Pro-Launcher-vX.Y.Z.exe` が GitHub Release へアップロードする正式アセットになります。
 
 ## 🧩 機能プレビュー
 
@@ -197,11 +170,16 @@ Codex-Pro-Launcher は Codex App のページ構造と、発見可能な公式 r
 ## 開発
 
 ```powershell
+npm run launch
 npm run doctor
 npm run inject
 npm run check
+npm run release:version
+npm run release:version -- --version 1.0.0
 npm run build:rust
 ```
+
+リリースビルド後は `private/build/rust/Codex-Pro-Launcher.exe` が固定の最新成果物、`private/build/rust/Codex-Pro-Launcher-vX.Y.Z.exe` が GitHub Release へアップロードする正式アセットになります。
 
 ローカル開発では、新しい clone ごとに公開境界用の Git hooks を一度だけインストールしてください。
 
