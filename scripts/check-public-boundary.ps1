@@ -15,6 +15,60 @@ param(
 $ErrorActionPreference = "Stop"
 $ZeroObjectId = "0000000000000000000000000000000000000000"
 
+# Resolve the repository root from a starting path without invoking Git.
+function Resolve-RepoRoot {
+    param([string]$StartPath)
+
+    $current = New-Object -TypeName System.IO.DirectoryInfo -ArgumentList ([System.IO.Path]::GetFullPath($StartPath))
+    while ($null -ne $current) {
+        # Treat either a .git directory or worktree .git file as a repository boundary.
+        if (Test-Path -LiteralPath (Join-Path $current.FullName ".git")) {
+            return $current.FullName
+        }
+
+        $current = $current.Parent
+    }
+
+    return [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+}
+
+# Read an inherited safe.directory value when Codex or the caller already supplied one.
+function Get-InheritedSafeDirectory {
+    $configCount = 0
+    if (-not [string]::IsNullOrWhiteSpace($env:GIT_CONFIG_COUNT)) {
+        try {
+            $configCount = [int]$env:GIT_CONFIG_COUNT
+        }
+        catch {
+            $configCount = 0
+        }
+    }
+
+    for ($index = 0; $index -lt $configCount; $index++) {
+        $key = [System.Environment]::GetEnvironmentVariable(("GIT_CONFIG_KEY_{0}" -f $index), "Process")
+        if ($key -ne "safe.directory") {
+            continue
+        }
+
+        $value = [System.Environment]::GetEnvironmentVariable(("GIT_CONFIG_VALUE_{0}" -f $index), "Process")
+        if (-not [string]::IsNullOrWhiteSpace($value) -and $value -ne "*") {
+            return $value
+        }
+    }
+
+    return ""
+}
+
+# Resolve the repository path without invoking Git so hooks still work when safe.directory checks are active.
+$InheritedSafeDirectory = Get-InheritedSafeDirectory
+if (-not [string]::IsNullOrWhiteSpace($InheritedSafeDirectory)) {
+    $RepoRoot = $InheritedSafeDirectory
+}
+else {
+    $RepoRoot = Resolve-RepoRoot -StartPath (Get-Location).Path
+}
+$RepoSafeDirectory = ($RepoRoot -replace "\\", "/").TrimEnd("/")
+
 # Normalize repository-relative paths across Windows and Git Bash separators.
 function Normalize-RepoPath {
     param([string]$Path)
@@ -79,7 +133,14 @@ function Get-PublicBoundaryViolation {
 function Invoke-GitLines {
     param([string[]]$Arguments)
 
-    $output = & git -c core.quotepath=false @Arguments
+    # Reset process-local Git config for this hook so inherited Codex config cannot leave sparse indexes.
+    $env:GIT_CONFIG_COUNT = "2"
+    $env:GIT_CONFIG_KEY_0 = "safe.directory"
+    $env:GIT_CONFIG_VALUE_0 = $RepoSafeDirectory
+    $env:GIT_CONFIG_KEY_1 = "core.quotepath"
+    $env:GIT_CONFIG_VALUE_1 = "false"
+
+    $output = & git @Arguments
     if ($LASTEXITCODE -ne 0) {
         throw "git $($Arguments -join ' ') failed with exit code $LASTEXITCODE"
     }
