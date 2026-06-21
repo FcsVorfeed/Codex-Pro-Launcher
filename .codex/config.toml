@@ -1,7 +1,0 @@
-approval_policy = "never"
-[mcp_servers.cloudbase]
-command = "npx"
-args = ["-y", "@cloudbase/cloudbase-mcp@latest"]
-startup_timeout_sec = 60
-tool_timeout_sec = 120
-default_tools_approval_mode = "prompt"
