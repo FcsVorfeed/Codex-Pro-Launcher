@@ -114,10 +114,12 @@ function Get-FileSha256 {
 function Write-ArtifactInfo {
   param(
     [Parameter(Mandatory = $true)]
-    [string]$ArtifactPath
+    [string]$ArtifactPath,
+
+    [string]$Title = "Build Artifact"
   )
 
-  Write-Section "Build Artifact"
+  Write-Section $Title
   if (-not (Test-Path -LiteralPath $ArtifactPath)) {
     throw "build artifact does not exist: $ArtifactPath"
   }
@@ -179,7 +181,16 @@ try {
   # Smoke-test the release artifact with dry-run before reporting success.
   $artifactPath = Join-Path $repoRoot "private\build\rust\Codex-Pro-Launcher.exe"
   Invoke-RequiredCommand -Step "Artifact Smoke Test" -Command $artifactPath -Arguments @("--dry-run")
-  Write-ArtifactInfo -ArtifactPath $artifactPath
+  Write-ArtifactInfo -ArtifactPath $artifactPath -Title "Build Artifact"
+
+  # Read the version from the built executable so the printed release asset matches the actual binary metadata.
+  $artifactVersionInfo = (Get-Item -LiteralPath $artifactPath).VersionInfo
+  $artifactVersion = $artifactVersionInfo.ProductVersion
+  if ($artifactVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
+    throw "build artifact has invalid ProductVersion: $artifactVersion"
+  }
+  $releaseAssetPath = Join-Path (Split-Path -Parent $artifactPath) "Codex-Pro-Launcher-v$artifactVersion.exe"
+  Write-ArtifactInfo -ArtifactPath $releaseAssetPath -Title "Release Asset"
 
   Write-Section "Build Complete"
   Write-Host "Release single-exe has been generated."

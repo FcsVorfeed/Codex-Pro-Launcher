@@ -83,11 +83,25 @@ npm run inject
 npm run check
 ```
 
+准备下一次正式发布版本；不带参数时默认递增 patch：
+
+```powershell
+npm run release:version
+```
+
+指定版本时使用：
+
+```powershell
+npm run release:version -- --version 1.0.0
+```
+
 构建正式 Rust 单文件发布包：
 
 ```powershell
 npm run build:rust
 ```
+
+构建完成后会在 `private/build/rust/` 同时生成固定最新产物 `Codex-Pro-Launcher.exe` 和正式发布资产 `Codex-Pro-Launcher-vX.Y.Z.exe`。GitHub Release 上传带版本号的文件。
 
 ## 🧩 功能预览
 

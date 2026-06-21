@@ -24,10 +24,33 @@ function Assert-LastExitCode {
   }
 }
 
+# 这一段读取 Cargo workspace 版本，作为 exe 文件名和 Windows 文件属性的同一版本源头。
+# Read the Cargo workspace version so the exe filename and Windows file metadata share one source.
+function Get-WorkspacePackageVersion {
+  $cargoTomlPath = Join-Path $repoRoot "Cargo.toml"
+  $insideWorkspacePackage = $false
+  foreach ($line in Get-Content -LiteralPath $cargoTomlPath -Encoding UTF8) {
+    if ($line -eq "[workspace.package]") {
+      $insideWorkspacePackage = $true
+      continue
+    }
+    if ($insideWorkspacePackage -and $line -match '^\[') {
+      break
+    }
+    if ($insideWorkspacePackage -and $line -match '^version\s*=\s*"(?<version>[0-9]+\.[0-9]+\.[0-9]+)"') {
+      return $Matches.version
+    }
+  }
+
+  throw "Cargo.toml missing [workspace.package] semantic version"
+}
+
 # 这一段固定输出目录到 private，避免发布产物混入公开源码树。
 # Use a dedicated private output directory so release artifacts do not mix into the public source tree.
 $outputDir = Join-Path $repoRoot "private\build\rust"
+$releaseVersion = Get-WorkspacePackageVersion
 $outputExe = Join-Path $outputDir "Codex-Pro-Launcher.exe"
+$versionedOutputExe = Join-Path $outputDir "Codex-Pro-Launcher-v$releaseVersion.exe"
 $targetDir = Join-Path $repoRoot "private\target"
 $releaseConfigEnvName = "CODEX_PRO_RELEASE_CONFIG_JSON"
 
@@ -183,12 +206,15 @@ Assert-LastExitCode "cargo build --target-dir $targetDir --release --bin Codex-P
 # Copy the final executable to the release directory.
 New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
 Copy-Item -Force (Join-Path $targetDir "release\Codex-Pro-Launcher.exe") $outputExe
+Copy-Item -Force $outputExe $versionedOutputExe
 
 # 这一段输出体积并提示验收风险。
 # Print size and warn when it exceeds the acceptance target.
 $sizeBytes = (Get-Item $outputExe).Length
 $sizeMb = [Math]::Round($sizeBytes / 1MB, 2)
 Write-Host "Rust launcher: $outputExe"
+Write-Host "Release asset: $versionedOutputExe"
+Write-Host "Version: $releaseVersion"
 Write-Host "Size: $sizeMb MB"
 if ($sizeBytes -gt (15MB)) {
   Write-Warning "Rust exe exceeds 15MB. Audit dependencies/assets/symbols before considering compression."
@@ -199,5 +225,6 @@ if ($Desktop) {
   # Optionally copy to Desktop for manual smoke testing.
   $desktop = [Environment]::GetFolderPath("Desktop")
   Copy-Item -Force $outputExe (Join-Path $desktop "Codex-Pro-Launcher.exe")
+  Copy-Item -Force $versionedOutputExe (Join-Path $desktop "Codex-Pro-Launcher-v$releaseVersion.exe")
   Write-Host "Copied to Desktop."
 }

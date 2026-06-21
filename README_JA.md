@@ -83,11 +83,25 @@ npm run inject
 npm run check
 ```
 
+次の正式リリース版を準備します。引数なしの場合は patch を 1 つ進めます。
+
+```powershell
+npm run release:version
+```
+
+明示的にバージョンを指定する場合:
+
+```powershell
+npm run release:version -- --version 1.0.0
+```
+
 正式な Rust 単一ファイル実行ファイルをビルドします。
 
 ```powershell
 npm run build:rust
 ```
+
+ビルド後は `private/build/rust/Codex-Pro-Launcher.exe` が固定の最新成果物、`private/build/rust/Codex-Pro-Launcher-vX.Y.Z.exe` が GitHub Release へアップロードする正式アセットになります。
 
 ## 🧩 機能プレビュー
 

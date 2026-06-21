@@ -83,11 +83,25 @@ Run the full check suite:
 npm run check
 ```
 
+Prepare the next formal release version. Without arguments, this bumps patch:
+
+```powershell
+npm run release:version
+```
+
+To set an explicit version:
+
+```powershell
+npm run release:version -- --version 1.0.0
+```
+
 Build the release Rust single-file executable:
 
 ```powershell
 npm run build:rust
 ```
+
+The build writes both `private/build/rust/Codex-Pro-Launcher.exe` as the fixed latest artifact and `private/build/rust/Codex-Pro-Launcher-vX.Y.Z.exe` as the GitHub Release upload asset.
 
 ## 🧩 Feature Preview
 

@@ -14,8 +14,10 @@ const mouseGesturesPath = path.join(rootDir, "src", "launcher", "native-bridge",
 const todayTokenUsagePath = path.join(rootDir, "src", "launcher", "native-bridge", "handlers", "today-token-usage.mjs");
 const packagePath = path.join(rootDir, "package.json");
 const buildLauncherScriptPath = path.join(rootDir, "scripts", "build-launcher-exe.ps1");
+const buildReleaseInteractiveScriptPath = path.join(rootDir, "scripts", "build-release-interactive.ps1");
 const buildRustScriptPath = path.join(rootDir, "scripts", "build-rust-single-exe.ps1");
 const injectDevScriptPath = path.join(rootDir, "scripts", "inject-dev.ps1");
+const releaseVersionScriptPath = path.join(rootDir, "scripts", "prepare-release-version.mjs");
 const rustArgsPath = path.join(rootDir, "crates", "codex-pro-core", "src", "args.rs");
 const rustDiagnosticsPath = path.join(rootDir, "crates", "codex-pro-core", "src", "diagnostics.rs");
 const rustInjectionPath = path.join(rootDir, "crates", "codex-pro-core", "src", "injection.rs");
@@ -82,8 +84,10 @@ await Promise.all([
   assertFileExists(mouseGesturesPath),
   assertFileExists(todayTokenUsagePath),
   assertFileExists(buildLauncherScriptPath),
+  assertFileExists(buildReleaseInteractiveScriptPath),
   assertFileExists(buildRustScriptPath),
   assertFileExists(injectDevScriptPath),
+  assertFileExists(releaseVersionScriptPath),
   assertFileExists(rustArgsPath),
   assertFileExists(rustDiagnosticsPath),
   assertFileExists(rustInjectionPath),
@@ -105,8 +109,10 @@ const [
   mouseGesturesSource,
   packageSource,
   buildLauncherScriptSource,
+  buildReleaseInteractiveScriptSource,
   buildRustScriptSource,
   injectDevScriptSource,
+  releaseVersionScriptSource,
   rustArgsSource,
   rustDiagnosticsSource,
   rustInjectionSource,
@@ -125,8 +131,10 @@ const [
   readFile(mouseGesturesPath, "utf8"),
   readFile(packagePath, "utf8"),
   readFile(buildLauncherScriptPath, "utf8"),
+  readFile(buildReleaseInteractiveScriptPath, "utf8"),
   readFile(buildRustScriptPath, "utf8"),
   readFile(injectDevScriptPath, "utf8"),
+  readFile(releaseVersionScriptPath, "utf8"),
   readFile(rustArgsPath, "utf8"),
   readFile(rustDiagnosticsPath, "utf8"),
   readFile(rustInjectionPath, "utf8"),
@@ -276,9 +284,11 @@ assertNotIncludes(conversationArchiveSource, "identity: `cwd:${cwdKey}`", "Rust 
 assertNotIncludes(conversationArchiveSource, "cleanLegacyConversationArchiveMarkdown", "Rust conversation archive view-time markdown sanitizer");
 assertNotIncludes(conversationArchiveSource, "getLegacyConversationArchiveThreadPath", "Rust conversation archive legacy remote path generator");
 assertIncludes(packageSource, '"check:native-bridge"', "native bridge check package script");
+assertIncludes(packageSource, '"check:release-version": "node scripts/prepare-release-version.mjs --check"', "release version consistency check package script");
 assertIncludes(packageSource, '"build:launcher"', "Rust private launcher build package script");
 assertIncludes(packageSource, '"doctor:rust:dev"', "Rust dev doctor package script");
 assertIncludes(packageSource, '"inject:rust:dev"', "Rust dev inject package script");
+assertIncludes(packageSource, '"release:version": "node scripts/prepare-release-version.mjs"', "release version bump package script");
 assertIncludes(packageSource, '"inject": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/inject-dev.ps1"', "default inject rebuilds and uses the private launcher");
 assertIncludes(packageSource, '"inject:rust:dev": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/inject-dev.ps1"', "Rust dev inject uses the private launcher script");
 assertIncludes(packageSource, '"check:rust-bridge": "cargo test --target-dir private/target -p codex-pro-bridge"', "Rust bridge checks keep Cargo output under private");
@@ -303,10 +313,20 @@ assertIncludes(buildRustScriptSource, "Assert-HttpsUrl $licenseApiBase", "releas
 assertIncludes(buildRustScriptSource, "Assert-LicensePublishableKey $licenseApiKey", "release build validates license publishable key");
 assertIncludes(buildRustScriptSource, "Assert-LicenseProductSlug $licenseProductSlug", "release build validates license product slug");
 assertIncludes(buildRustScriptSource, "Set-Item -Path \"Env:$releaseConfigEnvName\" -Value $releaseConfigJson", "release build exports embedded runtime config to cargo");
+assertIncludes(buildRustScriptSource, "Get-WorkspacePackageVersion", "release build reads the workspace package version");
+assertIncludes(buildRustScriptSource, "$versionedOutputExe = Join-Path $outputDir \"Codex-Pro-Launcher-v$releaseVersion.exe\"", "release build names the upload asset with the version");
 assertIncludes(buildRustScriptSource, "cargo test --target-dir $targetDir", "release build tests use private Cargo target");
 assertIncludes(buildRustScriptSource, "cargo clippy --target-dir $targetDir --all-targets -- -D warnings", "release build clippy uses private Cargo target");
 assertIncludes(buildRustScriptSource, "cargo build --target-dir $targetDir --release --bin Codex-Pro-Launcher", "release build uses private Cargo target");
 assertIncludes(buildRustScriptSource, "Join-Path $targetDir \"release\\Codex-Pro-Launcher.exe\"", "release build copies from private Cargo target");
+assertIncludes(buildRustScriptSource, "Copy-Item -Force $outputExe $versionedOutputExe", "release build writes a versioned upload asset");
+assertIncludes(buildReleaseInteractiveScriptSource, "Write-ArtifactInfo -ArtifactPath $releaseAssetPath -Title \"Release Asset\"", "interactive release build prints the versioned asset metadata");
+assertIncludes(buildReleaseInteractiveScriptSource, "\"Codex-Pro-Launcher-v$artifactVersion.exe\"", "interactive release build locates the versioned asset by executable metadata");
+assertIncludes(releaseVersionScriptSource, "workspacePackageNames", "release version script updates workspace packages");
+assertIncludes(releaseVersionScriptSource, "runtimeVersionPath", "release version script updates injected runtime version");
+assertIncludes(releaseVersionScriptSource, "readRuntimeVersion", "release version script checks injected runtime version");
+assertIncludes(releaseVersionScriptSource, "official release version must be >= 1.0.0", "release version script enforces official 1.x+ versions");
+assertIncludes(releaseVersionScriptSource, "Release asset: private/build/rust/Codex-Pro-Launcher-v${targetVersion}.exe", "release version script prints the upload asset path");
 assertIncludes(injectDevScriptSource, "$privateLauncher = Join-Path $repoRoot \"private\\bin\\Codex-Pro-Launcher.exe\"", "dev inject resolves the private launcher");
 assertIncludes(injectDevScriptSource, "-File $buildScript -SkipTests", "dev inject rebuilds the private launcher first");
 assertIncludes(injectDevScriptSource, "Start-Process -FilePath $privateLauncher", "dev inject starts the GUI launcher");
