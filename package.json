@@ -1,0 +1,37 @@
+{
+  "name": "codex-pro",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FcsVorfeed/Codex-Pro-Launcher.git"
+  },
+  "type": "module",
+  "scripts": {
+    "check": "npm run check:settings && npm run check:usage-panel && npm run check:diff-hover-navigation && npm run check:file-tree && npm run check:conversation-archive-sidebar && npm run check:native-thread-drag-to-chat && npm run check:native-bridge && npm run check:rust-bridge && npm run doctor",
+    "check:conversation-archive-sidebar": "node scripts/check-conversation-archive-sidebar.mjs",
+    "check:diff-hover-navigation": "node scripts/check-diff-hover-navigation.mjs",
+    "check:file-tree": "node scripts/check-file-tree-systems.mjs",
+    "check:native-bridge": "node scripts/check-native-bridge-modules.mjs",
+    "check:i18n": "node scripts/check-i18n-catalog.mjs",
+    "check:native-thread-drag-to-chat": "node scripts/check-native-thread-drag-to-chat.mjs",
+    "check:settings": "npm run check:i18n && npm run check:settings-menu && npm run check:settings-model",
+    "check:settings-menu": "node scripts/check-settings-menu-modules.mjs",
+    "check:settings-model": "node scripts/check-settings-model.mjs",
+    "check:usage-panel": "node scripts/check-usage-panel-route-scope.mjs && node scripts/check-usage-panel-view.mjs",
+    "check:rust-bridge": "cargo test --target-dir private/target -p codex-pro-bridge",
+    "build:launcher": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-launcher-exe.ps1",
+    "build:rust": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-rust-single-exe.ps1",
+    "doctor": "cargo run --target-dir private/target --bin Codex-Pro-Launcher -- --dry-run",
+    "doctor:rust": "cargo run --target-dir private/target --bin Codex-Pro-Launcher -- --dry-run",
+    "doctor:rust:dev": "cargo run --target-dir private/target/codex-pro-dev --bin Codex-Pro-Launcher -- --dry-run --dev-runtime --source-root .",
+    "launch": "cargo run --target-dir private/target/codex-pro-dev --bin Codex-Pro-Launcher",
+    "inject": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/inject-dev.ps1",
+    "inject:rust": "cargo run --target-dir private/target --bin Codex-Pro-Launcher -- --attach-only --native-bridge",
+    "inject:rust:dev": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/inject-dev.ps1"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -1,0 +1,36 @@
+node_modules/
+dist/
+build/
+bin/
+obj/
+target/
+*.log
+.DS_Store
+.codex-pro/
+.Codex-Pro-Launcher/
+/Codex-Pro-Launcher.exe
+/private/
+
+# Public-boundary safety net.
+# 公开边界保险：这些文件不应进入公开主仓库。
+.env
+.env.*
+*.local.json
+*.private.json
+*.secret.json
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.der
+*.xlsx
+*.xls
+*.xlsm
+*.zip
+*.7z
+*.rar
+*.exe
+*.msi
+*.msix

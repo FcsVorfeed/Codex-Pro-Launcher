@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+
+# Check the commit range before it reaches the remote.
+if command -v pwsh >/dev/null 2>&1; then
+  PS_BIN="pwsh"
+else
+  PS_BIN="powershell.exe"
+fi
+
+TMP_INPUT="$(mktemp)"
+trap 'rm -f "$TMP_INPUT"' EXIT
+cat > "$TMP_INPUT"
+
+"$PS_BIN" -NoProfile -ExecutionPolicy Bypass -File "scripts/check-public-boundary.ps1" -Mode PrePush -PrePushInputPath "$TMP_INPUT" -RemoteName "${1:-}" -RemoteUrl "${2:-}"

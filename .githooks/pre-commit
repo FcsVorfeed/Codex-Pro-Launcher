@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+# Check the public boundary before creating a commit.
+if command -v pwsh >/dev/null 2>&1; then
+  PS_BIN="pwsh"
+else
+  PS_BIN="powershell.exe"
+fi
+
+"$PS_BIN" -NoProfile -ExecutionPolicy Bypass -File "scripts/check-public-boundary.ps1" -Mode PreCommit
