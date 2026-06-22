@@ -334,6 +334,7 @@ assertIncludes(buildRustScriptSource, "Assert-LicenseProductSlug $licenseProduct
 assertIncludes(buildRustScriptSource, "Set-Item -Path \"Env:$releaseConfigEnvName\" -Value $releaseConfigJson", "release build exports embedded runtime config to cargo");
 assertIncludes(buildRustScriptSource, "Get-WorkspacePackageVersion", "release build reads the workspace package version");
 assertIncludes(buildRustScriptSource, "Get-WorkspaceRepositoryUrl", "release build reads the workspace repository URL");
+assertIncludes(buildRustScriptSource, "Write-Utf8NoBomText", "release build writes latest.json without PowerShell 7-only encodings");
 assertIncludes(buildRustScriptSource, "$versionedOutputExe = Join-Path $outputDir \"Codex-Pro-Launcher-v$releaseVersion.exe\"", "release build names the upload asset with the version");
 assertIncludes(buildRustScriptSource, "$versionedOutputZip = Join-Path $outputDir \"Codex-Pro-Launcher-v$releaseVersion-windows.zip\"", "release build names the primary zip asset with the version");
 assertIncludes(buildRustScriptSource, "$latestJsonPath = Join-Path $outputDir \"latest.json\"", "release build names the update index");

@@ -24,6 +24,21 @@ function Assert-LastExitCode {
   }
 }
 
+# 这一段用 .NET 写入无 BOM 的 UTF-8 文本，兼容 Windows PowerShell 5.1。
+# Write UTF-8 text without BOM through .NET so Windows PowerShell 5.1 is supported.
+function Write-Utf8NoBomText {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path,
+
+    [Parameter(Mandatory = $true)]
+    [string]$Text
+  )
+
+  $utf8NoBomEncoding = New-Object System.Text.UTF8Encoding -ArgumentList $false
+  [System.IO.File]::WriteAllText($Path, $Text, $utf8NoBomEncoding)
+}
+
 # 这一段读取 Cargo workspace 版本，作为 exe 文件名和 Windows 文件属性的同一版本源头。
 # Read the Cargo workspace version so the exe filename and Windows file metadata share one source.
 function Get-WorkspacePackageVersion {
@@ -201,7 +216,7 @@ function Write-ReleaseLatestJson {
     body = ""
     assets = $assets
   }
-  $payload | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $Path -Encoding utf8NoBOM
+  Write-Utf8NoBomText -Path $Path -Text (($payload | ConvertTo-Json -Depth 8) + "`n")
 }
 
 # 这一段把 private 配置抽取成允许进入 release exe 的公开运行配置。
