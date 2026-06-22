@@ -134,7 +134,7 @@ dependencies = [
 
 [[package]]
 name = "codex-pro-bridge"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -156,7 +156,7 @@ dependencies = [
 
 [[package]]
 name = "codex-pro-core"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "anyhow",
  "futures-util",
@@ -171,7 +171,7 @@ dependencies = [
 
 [[package]]
 name = "codex-pro-launcher"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "anyhow",
  "codex-pro-bridge",
