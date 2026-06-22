@@ -114,6 +114,12 @@ assert(
   "pet event sound cooldown should default to 350 ms",
 );
 assert(
+  JSON.stringify(settings.defaultSettings.petEventSoundVolumes) === "{}",
+  "pet event sound volumes should default to compact full-volume mapping",
+);
+assert(settings.minPetEventSoundVolume === 0, "pet event sound volume minimum should be 0");
+assert(settings.maxPetEventSoundVolume === 100, "pet event sound volume maximum should be 100");
+assert(
   JSON.stringify(settings.petEventSoundStateIds) === JSON.stringify([
     "idle",
     "waving",
@@ -173,6 +179,14 @@ const savedSettings = settings.saveSettings({
     waiting: "C:/Sounds/waiting.wav",
     unknown: "C:/Sounds/unknown.mp3",
   },
+  petEventSoundVolumes: {
+    failed: -10,
+    jumping: 101,
+    review: 100,
+    running: 65,
+    waiting: 0,
+    unknown: 25,
+  },
   petSyncEndpoint: "https://example.com/pet-sync",
   petSyncLastSyncAt: "2026-06-10T00:00:00.000Z",
   petSyncRevision: 2,
@@ -211,6 +225,12 @@ assert(savedSettings.petEventSoundCooldownMs === 600, "saveSettings should norma
 assert(savedSettings.petEventSoundPaths.running === "C:/Sounds/running.mp3", "saveSettings should keep configured pet event sound paths");
 assert(savedSettings.petEventSoundPaths.waiting === "C:/Sounds/waiting.wav", "saveSettings should keep multiple pet event sound paths");
 assert(!Object.hasOwn(savedSettings.petEventSoundPaths, "unknown"), "saveSettings should drop unknown pet event sound states");
+assert(savedSettings.petEventSoundVolumes.failed === 0, "saveSettings should clamp short pet event sound volume");
+assert(!Object.hasOwn(savedSettings.petEventSoundVolumes, "jumping"), "saveSettings should remove max-volume pet event sound overrides");
+assert(!Object.hasOwn(savedSettings.petEventSoundVolumes, "review"), "saveSettings should remove default pet event sound volume overrides");
+assert(savedSettings.petEventSoundVolumes.running === 65, "saveSettings should keep configured pet event sound volume");
+assert(savedSettings.petEventSoundVolumes.waiting === 0, "saveSettings should allow muted pet event sound volume");
+assert(!Object.hasOwn(savedSettings.petEventSoundVolumes, "unknown"), "saveSettings should drop unknown pet event sound volume states");
 
 rawSettings = readStoredSettings();
 assert(rawSettings.enableUsagePanel === false, "changed boolean field should be stored as override");
@@ -237,6 +257,11 @@ assert(rawSettings.enablePetEventSounds === true, "changed pet event sounds swit
 assert(rawSettings.petEventSoundCooldownMs === 600, "changed pet event sound cooldown should be stored as override");
 assert(rawSettings.petEventSoundPaths.running === "C:/Sounds/running.mp3", "changed pet event sound path should be stored as override");
 assert(!Object.hasOwn(rawSettings.petEventSoundPaths, "unknown"), "unknown pet event sound path keys should not be stored");
+assert(rawSettings.petEventSoundVolumes.running === 65, "changed pet event sound volume should be stored as override");
+assert(rawSettings.petEventSoundVolumes.waiting === 0, "muted pet event sound volume should be stored as override");
+assert(!Object.hasOwn(rawSettings.petEventSoundVolumes, "review"), "default pet event sound volume should not be stored");
+assert(!Object.hasOwn(rawSettings.petEventSoundVolumes, "jumping"), "clamped default pet event sound volume should not be stored");
+assert(!Object.hasOwn(rawSettings.petEventSoundVolumes, "unknown"), "unknown pet event sound volume keys should not be stored");
 
 settings.saveSettings({
   cloudSyncLastSyncAt: "2026-06-10T00:00:30.000Z",
@@ -276,6 +301,8 @@ assert(rawSettings.hiddenFileTreePatterns === "dist/**", "partial metadata save 
 assert(rawSettings.enablePetEventSounds === true, "partial metadata save should preserve pet event sounds switch");
 assert(rawSettings.petEventSoundCooldownMs === 600, "partial metadata save should preserve pet event sound cooldown");
 assert(rawSettings.petEventSoundPaths.running === "C:/Sounds/running.mp3", "partial metadata save should preserve pet event sound paths");
+assert(rawSettings.petEventSoundVolumes.running === 65, "partial metadata save should preserve pet event sound volumes");
+assert(rawSettings.petEventSoundVolumes.waiting === 0, "partial metadata save should preserve muted pet event sound volumes");
 assert(rawSettings.conversationArchiveSidebarDirectoryPanelMode === "hover", "partial metadata save should preserve left directory panel mode");
 assert(rawSettings.showUsageInLowerLeftPanel === true, "partial metadata save should preserve lower-left usage switch");
 assert(rawSettings.showUsagePanelPing === false, "partial metadata save should preserve Ping switch");

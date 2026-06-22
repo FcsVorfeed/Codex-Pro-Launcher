@@ -227,7 +227,7 @@ const expectedSections = [
     modulePath: ["src", "inject", "systems", "settings-menu", "sections", "pet-status.js"],
     ownerSystem: "pet-event-sounds",
     requiresBind: true,
-    settingKeys: ["enablePetEventSounds", "petEventSoundCooldownMs", "petEventSoundPaths"],
+    settingKeys: ["enablePetEventSounds", "petEventSoundCooldownMs", "petEventSoundPaths", "petEventSoundVolumes"],
   },
 ];
 
@@ -302,11 +302,13 @@ function createSettingsApi() {
     maxChatWidthPixels: 2200,
     maxPetEventSoundCooldownMs: 5000,
     maxPetEventSoundPathLength: 1000,
+    maxPetEventSoundVolume: 100,
     minBackgroundWallpaperIntervalSeconds: 5,
     minBackgroundWallpaperOpacity: 0,
     minChatWidthPixels: 560,
     minDiffHoverPreviewFontSize: 8,
     minPetEventSoundCooldownMs: 0,
+    minPetEventSoundVolume: 0,
     minUsageRefreshSeconds: 5,
     minContextUsageDecimalPlaces: 0,
     maxContextUsageDecimalPlaces: 2,
@@ -1214,6 +1216,15 @@ for (const expectedSection of [...expectedBuiltinSections, ...expectedSections])
         html.includes('data-codex-pro-setting-key="petEventSoundPaths:running"') &&
           html.includes('data-codex-pro-pet-event-sound-path="running"'),
         `${expectedSection.id} missing pet event sound path data keys`,
+      );
+      continue;
+    }
+    if (key === "petEventSoundVolumes") {
+      assert(
+        html.includes('data-codex-pro-setting-key="petEventSoundVolumes:running"') &&
+          html.includes('data-codex-pro-pet-event-sound-volume="running"') &&
+          html.includes('data-codex-pro-pet-event-sound-preview="running"'),
+        `${expectedSection.id} missing pet event sound volume and preview data keys`,
       );
       continue;
     }

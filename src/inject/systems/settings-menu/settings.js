@@ -103,6 +103,7 @@
     mouseGestureShortcuts: defaultMouseGestureShortcuts,
     petEventSoundCooldownMs: 350,
     petEventSoundPaths: {},
+    petEventSoundVolumes: {},
     petSyncEndpoint: defaultPetSyncEndpoint,
     petSyncLastSyncAt: "",
     petSyncRevision: 0,
@@ -145,6 +146,7 @@
   const maxMouseGestureShortcutLength = 80;
   const maxPetEventSoundCooldownMs = 5000;
   const maxPetEventSoundPathLength = 1000;
+  const maxPetEventSoundVolume = 100;
   const maxUsagePanelPingEndpointLength = 500;
   const minBackgroundWallpaperIntervalSeconds = 5;
   const minBackgroundWallpaperOpacity = 0;
@@ -152,6 +154,7 @@
   const minContextUsageDecimalPlaces = 0;
   const minDiffHoverPreviewFontSize = 8;
   const minPetEventSoundCooldownMs = 0;
+  const minPetEventSoundVolume = 0;
   const minUsagePanelPingRefreshSeconds = 5;
   const minUsageRefreshSeconds = 10;
   const mouseGestureShortcutCodes = Object.keys(defaultMouseGestureShortcuts);
@@ -685,12 +688,45 @@
     return paths;
   }
 
+  function normalizePetEventSoundVolume(value) {
+    // 这一段把单个宠物状态音量限制到 0-100，非法值回到满音量默认值。
+    // Clamp one pet-state volume to 0-100 and fall back to full volume for invalid values.
+    if (typeof value === "string" && !value.trim()) return maxPetEventSoundVolume;
+    const number = Number(value);
+    if (!Number.isFinite(number)) return maxPetEventSoundVolume;
+    return Math.round(Math.min(maxPetEventSoundVolume, Math.max(minPetEventSoundVolume, number)));
+  }
+
+  function normalizePetEventSoundVolumes(value) {
+    // 这一段只保存偏离默认满音量的官方状态音量，减少本地设置冗余。
+    // Store only official state volumes that differ from the full-volume default to keep local settings compact.
+    const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    const volumes = {};
+    for (const stateId of petEventSoundStateIds) {
+      const volume = normalizePetEventSoundVolume(source[stateId]);
+      if (volume !== maxPetEventSoundVolume) volumes[stateId] = volume;
+    }
+    return volumes;
+  }
+
   function arePetEventSoundPathsEqual(left, right) {
     // 这一段按固定状态顺序比较路径对象，避免对象引用差异导致保存按钮误报修改。
     // Compare path objects in a fixed state order so object references do not falsely mark settings as modified.
     const leftPaths = normalizePetEventSoundPaths(left);
     const rightPaths = normalizePetEventSoundPaths(right);
     return petEventSoundStateIds.every((stateId) => leftPaths[stateId] === rightPaths[stateId]);
+  }
+
+  function arePetEventSoundVolumesEqual(left, right) {
+    // 这一段按固定状态顺序比较音量对象，缺失值按默认满音量处理。
+    // Compare volume objects in fixed state order, treating missing entries as full-volume defaults.
+    const leftVolumes = normalizePetEventSoundVolumes(left);
+    const rightVolumes = normalizePetEventSoundVolumes(right);
+    return petEventSoundStateIds.every((stateId) => {
+      const leftVolume = leftVolumes[stateId] ?? maxPetEventSoundVolume;
+      const rightVolume = rightVolumes[stateId] ?? maxPetEventSoundVolume;
+      return leftVolume === rightVolume;
+    });
   }
 
   function normalizePetEventSoundCooldownMs(value) {
@@ -824,6 +860,7 @@
     { key: "mouseGestureShortcuts", normalize: normalizeMouseGestureShortcuts, equals: areMouseGestureShortcutsEqual },
     { key: "petEventSoundCooldownMs", normalize: normalizePetEventSoundCooldownMs },
     { key: "petEventSoundPaths", normalize: normalizePetEventSoundPaths, equals: arePetEventSoundPathsEqual },
+    { key: "petEventSoundVolumes", normalize: normalizePetEventSoundVolumes, equals: arePetEventSoundVolumesEqual },
     { key: "petSyncEndpoint", normalize: normalizePetSyncEndpoint, preserveOnPartialSave: true },
     { key: "petSyncLastSyncAt", normalize: normalizePetSyncLastSyncAt, preserveOnPartialSave: true },
     { key: "petSyncRevision", normalize: normalizePetSyncRevision, preserveOnPartialSave: true },
@@ -915,6 +952,18 @@
     ]));
   }
 
+  function getPetEventSoundVolumeModifiedState(source, requireOwn) {
+    // 这一段保留每个宠物状态音量的细粒度修改标记，让音量输入能独立显示蓝点。
+    // Keep fine-grained modified markers for each pet-state volume so volume inputs can show their own dirty marker.
+    const sourceObject = getSourceObject(source);
+    const hasVolumes = Object.hasOwn(sourceObject, "petEventSoundVolumes");
+    const volumes = normalizePetEventSoundVolumes(sourceObject.petEventSoundVolumes);
+    return Object.fromEntries(petEventSoundStateIds.map((stateId) => [
+      "petEventSoundVolumes:" + stateId,
+      (!requireOwn || hasVolumes) && (volumes[stateId] ?? maxPetEventSoundVolume) !== maxPetEventSoundVolume,
+    ]));
+  }
+
   function getModifiedStateFromSource(source, { requireOwn }) {
     // 这一段统一生成“已保存”和“草稿”的修改状态，差异只在是否要求 raw 中存在该字段。
     // Generate both saved and draft modified states in one path; they only differ by requiring raw ownership.
@@ -930,6 +979,7 @@
       ...modifiedState,
       ...getMouseGestureShortcutModifiedState(sourceObject, requireOwn),
       ...getPetEventSoundPathModifiedState(sourceObject, requireOwn),
+      ...getPetEventSoundVolumeModifiedState(sourceObject, requireOwn),
     };
   }
 
@@ -1044,6 +1094,7 @@
     maxHiddenFileTreePatternsLength,
     maxPetEventSoundCooldownMs,
     maxPetEventSoundPathLength,
+    maxPetEventSoundVolume,
     maxUsagePanelPingEndpointLength,
     maxContextUsageDecimalPlaces,
     minBackgroundWallpaperIntervalSeconds,
@@ -1052,6 +1103,7 @@
     minContextUsageDecimalPlaces,
     minDiffHoverPreviewFontSize,
     minPetEventSoundCooldownMs,
+    minPetEventSoundVolume,
     minUsagePanelPingRefreshSeconds,
     minUsageRefreshSeconds,
     mouseGestureShortcutCodes,

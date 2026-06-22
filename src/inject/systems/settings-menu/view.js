@@ -808,6 +808,36 @@
         #${rootId} .codex-pro-settings-path-input {
           font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
         }
+        #${rootId} .codex-pro-pet-status-sound-row {
+          display: grid;
+          grid-template-columns: minmax(120px, 1fr) 64px 30px;
+          gap: 8px;
+          align-items: center;
+          min-width: 0;
+        }
+        #${rootId} .codex-pro-pet-status-volume-input {
+          width: 100%;
+          padding: 0 6px;
+          text-align: center;
+        }
+        #${rootId} .codex-pro-pet-status-volume-field {
+          position: relative;
+          display: block;
+          min-width: 0;
+        }
+        #${rootId} .codex-pro-pet-status-volume-field::before {
+          position: absolute;
+          left: -5px;
+          top: 6px;
+          bottom: 6px;
+          width: 2px;
+          border-radius: 999px;
+          background: transparent;
+          content: "";
+        }
+        #${rootId} .codex-pro-pet-status-volume-field[data-codex-pro-modified="true"]::before {
+          background: #0e9eea;
+        }
         #${rootId} .codex-pro-settings-icon-action {
           width: 30px;
           height: 30px;

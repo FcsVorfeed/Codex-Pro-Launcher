@@ -6,6 +6,7 @@
   const settingsStorageKey = "codex-pro:settings";
   const avatarStateSelector = ".codex-avatar-root[data-avatar-state]";
   const loadTimeoutMs = 10000;
+  const defaultSoundVolume = 100;
 
   function getSettingsApi() {
     // 这一段延迟读取设置 API，让主窗口和宠物浮窗复用同一个模块。
@@ -48,6 +49,16 @@
     }
   }
 
+  async function requestConfiguredSoundData(stateId) {
+    // 这一段统一走 stateId 到本机路径的 native bridge 解析，不让页面层直接传文件路径。
+    // Resolve local audio through the stateId native bridge path so page code never sends raw file paths directly.
+    const settings = getSettings();
+    if (!getConfiguredSoundPath(settings, stateId) || typeof runtime.nativeBridge?.requestPetEventSound !== "function") {
+      return null;
+    }
+    return runtime.nativeBridge.requestPetEventSound({ stateId });
+  }
+
   function getConfiguredSoundPath(settings, stateId) {
     // 这一段按状态 id 读取音效路径，总开关关闭或路径无效时返回空。
     // Read the sound path for a state id, returning empty when the master switch is off or the path is invalid.
@@ -58,17 +69,47 @@
     return normalizeText(paths[stateId], 1000);
   }
 
+  function normalizeSoundVolume(value) {
+    // 这一段把设置或试听传入的音量统一限制到 0-100。
+    // Clamp configured or preview-supplied volume values to 0-100.
+    const number = Number(value);
+    if (!Number.isFinite(number)) return defaultSoundVolume;
+    return Math.round(Math.min(defaultSoundVolume, Math.max(0, number)));
+  }
+
+  function getConfiguredSoundVolume(settings, stateId, volumeOverride) {
+    // 这一段读取状态专属音量；试听传入 override 时优先使用当前按钮旁的数值。
+    // Read the state-specific volume; preview override wins so the adjacent input is honored immediately.
+    if (volumeOverride !== undefined) return normalizeSoundVolume(volumeOverride);
+    const volumes = settings.petEventSoundVolumes && typeof settings.petEventSoundVolumes === "object"
+      ? settings.petEventSoundVolumes
+      : {};
+    return normalizeSoundVolume(volumes[stateId]);
+  }
+
   function normalizeConfiguredStateId(settings, value) {
     // 这一段只接受设置模型公开的官方状态 id，让跨窗口消息不能携带任意文件路径。
     // Accept only official state ids exposed by the settings model so cross-window messages cannot carry arbitrary paths.
     const stateId = normalizeText(value, 40);
-    const stateIds = Array.isArray(settings.petEventSoundStateIds) ? settings.petEventSoundStateIds : [];
+    const stateIds = Array.isArray(settings?.petEventSoundStateIds) ? settings.petEventSoundStateIds : [];
     return stateIds.includes(stateId) ? stateId : "";
   }
 
   function startMainCoordinator(signal) {
-    // 这一段在主窗口接收浮窗的音频读取请求，并交给 native bridge 读取本机文件。
-    // In the main window, receive overlay audio-load requests and delegate local file reads to the native bridge.
+    // 这一段在主窗口提供设置页试听，并接收浮窗的音频读取请求。
+    // In the main window, provide settings-page preview and receive overlay audio-load requests.
+    const previewRuntime = createAudioPlaybackRuntime(signal, requestConfiguredSoundData);
+    const petEventSoundsModule = runtime.systemModules.petEventSounds ??= {};
+    petEventSoundsModule.previewState = (stateId, options = {}) => {
+      previewRuntime.clearCache();
+      return previewRuntime.playState(stateId, { ignoreCooldown: true, volume: options.volume });
+    };
+    signal.addEventListener("abort", () => {
+      if (petEventSoundsModule.previewState) delete petEventSoundsModule.previewState;
+    }, { once: true });
+
+    // 这一段只在支持 BroadcastChannel 时桥接宠物浮窗，设置页试听不依赖这个通道。
+    // Bridge the pet overlay only when BroadcastChannel exists; settings preview does not depend on it.
     const channel = openBroadcastChannel();
     if (!channel) return;
     signal.addEventListener("abort", () => channel.close(), { once: true });
@@ -89,7 +130,7 @@
         channel.postMessage({ error: "unavailable", kind: "sound-response", ok: false, requestId, source: "main" });
         return;
       }
-      const response = await runtime.nativeBridge.requestPetEventSound({ stateId });
+      const response = await requestConfiguredSoundData(stateId);
       if (signal.aborted) return;
       channel.postMessage({
         bytes: Number(response?.bytes) || 0,
@@ -115,14 +156,108 @@
     return bytes.buffer;
   }
 
-  function createAvatarAudioRuntime(channel, signal) {
-    // 这一段建立浮窗侧音频运行态，缓存解码结果并按请求 id 管理跨页面回包。
-    // Build the overlay audio runtime, caching decoded buffers and tracking cross-page responses by request id.
+  function createAudioPlaybackRuntime(signal, requestSoundData) {
+    // 这一段建立共享音频播放运行态，让主窗口试听和浮窗事件播放复用缓存、冷却和音量逻辑。
+    // Build a shared playback runtime so main-window preview and overlay event playback reuse cache, cooldown, and volume logic.
     const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
-    const audioContext = AudioContextConstructor ? new AudioContextConstructor() : null;
+    let audioContext = null;
     const audioBufferCache = new Map();
-    const pendingRequests = new Map();
     const lastPlayedAtByState = new Map();
+
+    function getAudioContext() {
+      // 这一段按需创建 AudioContext，避免未使用音效时提前占用音频资源。
+      // Create the AudioContext lazily so unused sound settings do not reserve audio resources.
+      if (!AudioContextConstructor || signal.aborted) return null;
+      if (!audioContext) audioContext = new AudioContextConstructor();
+      return audioContext;
+    }
+
+    async function loadAudioBuffer(path, stateId) {
+      // 这一段按状态和路径缓存解码 Promise，路径变更后会自动形成新缓存键。
+      // Cache decoded promises by state and path so path changes naturally produce a new cache key.
+      const context = getAudioContext();
+      if (!context) return null;
+      const cacheKey = `${stateId}\n${path}`;
+      if (audioBufferCache.has(cacheKey)) return audioBufferCache.get(cacheKey);
+      const promise = (async () => {
+        const response = await requestSoundData(stateId);
+        if (!response?.ok || typeof response.base64 !== "string") return null;
+        const arrayBuffer = base64ToArrayBuffer(response.base64);
+        return context.decodeAudioData(arrayBuffer);
+      })();
+      audioBufferCache.set(cacheKey, promise);
+      promise.then((buffer) => {
+        if (!buffer) audioBufferCache.delete(cacheKey);
+      }).catch(() => {
+        audioBufferCache.delete(cacheKey);
+      });
+      return promise;
+    }
+
+    async function playState(stateId, options = {}) {
+      // 这一段执行实际播放：解析设置、应用冷却、恢复 AudioContext，并用 GainNode 控制音量。
+      // Perform playback by resolving settings, applying cooldown, resuming AudioContext, and using a GainNode for volume.
+      const normalizedStateId = normalizeConfiguredStateId(getSettingsApi(), stateId);
+      if (!normalizedStateId || signal.aborted) return false;
+      const settings = getSettings();
+      const path = getConfiguredSoundPath(settings, normalizedStateId);
+      if (!path) return false;
+      const volume = getConfiguredSoundVolume(settings, normalizedStateId, options.volume);
+      if (volume <= 0) return false;
+      const cooldownMs = Number(settings.petEventSoundCooldownMs) || 0;
+      const now = Date.now();
+      if (!options.ignoreCooldown && now - (lastPlayedAtByState.get(normalizedStateId) || 0) < cooldownMs) return false;
+      lastPlayedAtByState.set(normalizedStateId, now);
+      const context = getAudioContext();
+      if (!context) return false;
+      const buffer = await loadAudioBuffer(path, normalizedStateId);
+      if (!buffer || signal.aborted) return false;
+      await context.resume?.();
+      const source = context.createBufferSource();
+      const gain = context.createGain();
+      source.buffer = buffer;
+      gain.gain.value = volume / defaultSoundVolume;
+      source.connect(gain);
+      gain.connect(context.destination);
+      source.addEventListener("ended", () => {
+        // 这一段在音效结束后断开节点，避免重复触发时保留无用音频节点。
+        // Disconnect nodes after playback so repeated triggers do not keep unused audio nodes alive.
+        try {
+          source.disconnect();
+          gain.disconnect();
+        } catch {}
+      }, { once: true });
+      source.start();
+      return true;
+    }
+
+    window.addEventListener("storage", (event) => {
+      // 这一段在主窗口保存设置后清掉已解码缓存，让同一路径替换音频文件也能重新读取。
+      // Clear decoded cache after settings are saved in the main window so replacing a file at the same path can reload.
+      if (event.key === settingsStorageKey) audioBufferCache.clear();
+    }, { signal });
+
+    signal.addEventListener("abort", () => {
+      // 这一段关闭时释放解码缓存和 AudioContext，避免重复注入后残留旧播放链路。
+      // On shutdown, release decoded buffers and the AudioContext so reinjection does not leave stale playback paths.
+      audioBufferCache.clear();
+      audioContext?.close?.().catch?.(() => {});
+    }, { once: true });
+
+    return {
+      clearCache() {
+        // 这一段给设置页试听提供显式清缓存入口，确保同一路径替换文件后能立刻重读。
+        // Provide an explicit preview cache reset so replacing a file at the same path is heard immediately.
+        audioBufferCache.clear();
+      },
+      playState,
+    };
+  }
+
+  function createAvatarAudioRuntime(channel, signal) {
+    // 这一段建立浮窗侧跨页面请求运行态，再复用共享播放器执行真实播放。
+    // Build the overlay cross-page request runtime, then reuse the shared player for actual playback.
+    const pendingRequests = new Map();
 
     function finishRequest(requestId, response) {
       // 这一段完成一个等待中的音频读取请求，并清理定时器，避免浮窗长时间运行时泄漏。
@@ -145,59 +280,7 @@
       });
     }
 
-    async function loadAudioBuffer(path, stateId) {
-      // 这一段按路径缓存解码 Promise，同一个文件多次触发时不会重复读取和解码。
-      // Cache decoded promises by path so repeated triggers of the same file do not re-read or re-decode it.
-      if (!audioContext) return null;
-      if (audioBufferCache.has(path)) return audioBufferCache.get(path);
-      const promise = (async () => {
-        const response = await requestSoundData(stateId);
-        if (!response?.ok || typeof response.base64 !== "string") return null;
-        const arrayBuffer = base64ToArrayBuffer(response.base64);
-        return audioContext.decodeAudioData(arrayBuffer);
-      })();
-      audioBufferCache.set(path, promise);
-      promise.then((buffer) => {
-        if (!buffer) audioBufferCache.delete(path);
-      }).catch(() => {
-        audioBufferCache.delete(path);
-      });
-      return promise;
-    }
-
-    async function playPathForState(path, stateId) {
-      // 这一段执行实际播放：先应用冷却，再恢复 AudioContext，最后创建一次性 BufferSource。
-      // Perform playback: apply cooldown, resume AudioContext, then create a one-shot BufferSource.
-      if (!audioContext || signal.aborted) return;
-      const settings = getSettings();
-      const cooldownMs = Number(settings.petEventSoundCooldownMs) || 0;
-      const now = Date.now();
-      if (now - (lastPlayedAtByState.get(stateId) || 0) < cooldownMs) return;
-      lastPlayedAtByState.set(stateId, now);
-      const buffer = await loadAudioBuffer(path, stateId);
-      if (!buffer || signal.aborted) return;
-      await audioContext.resume?.();
-      const source = audioContext.createBufferSource();
-      source.buffer = buffer;
-      source.connect(audioContext.destination);
-      source.addEventListener("ended", () => {
-        // 这一段在音效结束后断开节点，避免重复触发时保留无用音频节点。
-        // Disconnect the node after playback so repeated triggers do not keep unused audio nodes alive.
-        try {
-          source.disconnect();
-        } catch {}
-      }, { once: true });
-      source.start();
-    }
-
-    function handleStateTrigger(stateId) {
-      // 这一段按当前设置决定某个状态是否播放音效，未配置路径时直接跳过。
-      // Decide from current settings whether a state should play sound, skipping states without configured paths.
-      const settings = getSettings();
-      const path = getConfiguredSoundPath(settings, stateId);
-      if (!path) return;
-      playPathForState(path, stateId).catch(() => {});
-    }
+    const playbackRuntime = createAudioPlaybackRuntime(signal, requestSoundData);
 
     channel.addEventListener("message", (event) => {
       // 这一段接收主窗口回传的音频读取结果，并只唤醒匹配 request id 的等待者。
@@ -208,28 +291,27 @@
       if (!requestId) return;
       finishRequest(requestId, message);
     }, { signal });
-    window.addEventListener("storage", (event) => {
-      // 这一段在主窗口保存设置后清掉已解码缓存，让同一路径替换音频文件也能重新读取。
-      // Clear decoded cache after settings are saved in the main window so replacing a file at the same path can reload.
-      if (event.key === settingsStorageKey) audioBufferCache.clear();
-    }, { signal });
 
     signal.addEventListener("abort", () => {
-      // 这一段关闭时释放等待请求和 AudioContext，避免重复注入后残留旧播放链路。
-      // On shutdown, release pending requests and the AudioContext so reinjection does not leave stale playback paths.
+      // 这一段关闭时释放等待请求，避免重复注入后残留旧回包处理器。
+      // On shutdown, release pending requests so reinjection does not leave stale response handlers.
       for (const [requestId] of pendingRequests) finishRequest(requestId, null);
-      audioBufferCache.clear();
-      audioContext?.close?.().catch?.(() => {});
     }, { once: true });
 
-    return { handleStateTrigger };
+    return {
+      handleStateTrigger(stateId) {
+        // 这一段按当前设置决定某个状态是否播放音效，未配置路径时直接跳过。
+        // Decide from current settings whether a state should play sound, skipping states without configured paths.
+        playbackRuntime.playState(stateId).catch(() => {});
+      },
+    };
   }
 
   function normalizeAvatarState(value, settings) {
     // 这一段只接受 settings 模块公开的官方状态 id，避免 DOM 被其它值污染后误触发。
     // Accept only official state ids exposed by the settings model so polluted DOM values cannot trigger playback.
     const stateId = normalizeText(value, 40);
-    const stateIds = Array.isArray(settings.petEventSoundStateIds) ? settings.petEventSoundStateIds : [];
+    const stateIds = Array.isArray(settings?.petEventSoundStateIds) ? settings.petEventSoundStateIds : [];
     return stateIds.includes(stateId) ? stateId : "";
   }
 
