@@ -72,6 +72,7 @@ Codex-Pro-Launcher は、残り使用量、今日の token、現在の会話 tok
 
 ### 🔍 変更レビューをよりスムーズに
 
+<img width="968" height="552" alt="QQ截图20260622192235 rounded" src="https://github.com/user-attachments/assets/7337211e-7217-40a0-a760-5bdeb28210d1" />
 <img width="1025" height="439" alt="QQ截图20260622081950 rounded" src="https://github.com/user-attachments/assets/c0a749ba-6611-440e-a4c1-f17e2c267741" />
 
 Codex 標準の変更サマリーにホバーすると、変更されたファイル一覧を確認できます。単一ファイルプレビューを開いたり、特定の hunk へ移動したり、ローカルの外部 Diff ツールへ渡したりできます。
