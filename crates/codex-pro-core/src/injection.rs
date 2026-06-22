@@ -377,6 +377,8 @@ async fn cleanup_auxiliary_codex_targets(
     "codex-pro-settings-style",
     "codex-pro-background-wallpaper-root",
     "codex-pro-background-wallpaper-style",
+    "codex-pro-chat-width-resizer-handle",
+    "codex-pro-chat-width-resizer-style",
     "codex-pro-font-override-style",
     "codex-pro-mouse-gesture-root",
     "codex-pro-mouse-gesture-style",

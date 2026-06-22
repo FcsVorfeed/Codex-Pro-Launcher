@@ -9,10 +9,11 @@
   },
   "type": "module",
   "scripts": {
-    "check": "npm run check:release-version && npm run check:settings && npm run check:usage-panel && npm run check:diff-hover-navigation && npm run check:file-tree && npm run check:conversation-archive-sidebar && npm run check:native-thread-drag-to-chat && npm run check:native-bridge && npm run check:rust-bridge && npm run doctor",
+    "check": "npm run check:release-version && npm run check:settings && npm run check:usage-panel && npm run check:chat-width-resizer && npm run check:diff-hover-navigation && npm run check:file-tree && npm run check:conversation-archive-sidebar && npm run check:native-thread-drag-to-chat && npm run check:native-bridge && npm run check:rust-bridge && npm run doctor",
     "check:conversation-archive-sidebar": "node scripts/check-conversation-archive-sidebar.mjs",
     "check:diff-hover-navigation": "node scripts/check-diff-hover-navigation.mjs",
     "check:file-tree": "node scripts/check-file-tree-systems.mjs",
+    "check:chat-width-resizer": "node scripts/check-chat-width-resizer.mjs",
     "check:native-bridge": "node scripts/check-native-bridge-modules.mjs",
     "check:release-version": "node scripts/prepare-release-version.mjs --check",
     "check:i18n": "node scripts/check-i18n-catalog.mjs",

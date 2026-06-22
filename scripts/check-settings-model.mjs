@@ -93,6 +93,26 @@ assert(
   settings.defaultSettings.usagePanelPingRefreshSeconds === 10,
   "Ping refresh interval should default to 10 seconds",
 );
+assert(
+  settings.defaultSettings.enableChatWidthResizer === true,
+  "chat width resizer should default to enabled",
+);
+assert(
+  settings.defaultSettings.chatWidthMode === "official",
+  "chat width should default to Codex's native mode",
+);
+assert(
+  settings.defaultSettings.chatWidthPixels === 1100,
+  "chat width should keep a conservative custom seed width",
+);
+
+storage.set("codex-pro:settings", JSON.stringify({ chatWidthPixels: 1320 }));
+assert(settings.getSettings().chatWidthMode === "custom", "legacy custom chat width should migrate to custom mode");
+assert(settings.getSettings().chatWidthPixels === 1320, "legacy custom chat width should keep its stored pixel value");
+storage.set("codex-pro:settings", JSON.stringify({ chatWidthPixels: null }));
+assert(settings.getSettings().chatWidthMode === "official", "invalid legacy chat width should keep native mode");
+assert(settings.getSettings().chatWidthPixels === 1100, "invalid legacy chat width should fall back to the default width");
+storage.delete("codex-pro:settings");
 
 const migratedLegacyProfileSettings = settings.saveSettings({
   ...settings.getSettings(),
@@ -120,6 +140,7 @@ const savedSettings = settings.saveSettings({
   enableConversationArchiveSidebar: false,
   enableConversationArchiveSync: true,
   enableBackgroundWallpaper: true,
+  enableChatWidthResizer: false,
   enableStartupSidebar: true,
   enableUsagePanel: false,
   hiddenFileTreePatterns: "dist/**",
@@ -133,6 +154,8 @@ const savedSettings = settings.saveSettings({
   showUsagePanelTokenDetails: true,
   usagePanelTodayTokenSource: "official",
   uiLanguage: "zh-CN",
+  chatWidthMode: "custom",
+  chatWidthPixels: 1320,
   usageRefreshSeconds: 15,
 });
 assert(savedSettings.enableUsagePanel === false, "saveSettings should normalize changed boolean fields");
@@ -140,6 +163,7 @@ assert(savedSettings.enableCloudSettingsSync === true, "saveSettings should norm
 assert(savedSettings.enableConversationArchiveSidebar === false, "saveSettings should normalize changed archive sidebar switch");
 assert(savedSettings.enableConversationArchiveSync === true, "saveSettings should normalize changed archive sync switch");
 assert(savedSettings.enableBackgroundWallpaper === true, "saveSettings should allow changed background wallpaper switch to turn on");
+assert(savedSettings.enableChatWidthResizer === false, "saveSettings should allow changed chat width resizer switch to turn off");
 assert(savedSettings.collapseSidebarOnStartup === true, "saveSettings should allow changed startup collapse switch to turn on");
 assert(savedSettings.enableStartupSidebar === true, "saveSettings should allow changed startup sidebar switch to turn on");
 assert(savedSettings.conversationArchiveSidebarDirectoryPanelMode === "hover", "saveSettings should normalize changed left directory panel mode");
@@ -150,6 +174,8 @@ assert(savedSettings.usagePanelPingRefreshSeconds === 20, "saveSettings should n
 assert(savedSettings.showUsagePanelTokenDetails === true, "saveSettings should allow changed token details switch to turn on");
 assert(savedSettings.usagePanelTodayTokenSource === "official", "saveSettings should normalize changed Today token source");
 assert(savedSettings.uiLanguage === "zh-CN", "saveSettings should normalize changed UI language");
+assert(savedSettings.chatWidthMode === "custom", "saveSettings should normalize changed chat width mode");
+assert(savedSettings.chatWidthPixels === 1320, "saveSettings should normalize changed chat width");
 assert(savedSettings.usageRefreshSeconds === 15, "saveSettings should normalize changed numeric fields");
 
 rawSettings = readStoredSettings();
@@ -159,6 +185,7 @@ assert(rawSettings.enableCloudSettingsSync === true, "changed cloud sync switch 
 assert(rawSettings.enableConversationArchiveSidebar === false, "changed archive sidebar switch should be stored as override");
 assert(rawSettings.enableConversationArchiveSync === true, "changed archive sync switch should be stored as override");
 assert(rawSettings.enableBackgroundWallpaper === true, "changed background wallpaper switch should be stored as override");
+assert(rawSettings.enableChatWidthResizer === false, "changed chat width resizer switch should be stored as override");
 assert(rawSettings.collapseSidebarOnStartup === true, "changed startup collapse switch should be stored as override");
 assert(rawSettings.enableStartupSidebar === true, "changed startup sidebar switch should be stored as override");
 assert(rawSettings.showUsageInLowerLeftPanel === true, "changed lower-left usage switch should be stored as override");
@@ -168,6 +195,8 @@ assert(rawSettings.usagePanelPingRefreshSeconds === 20, "changed Ping interval s
 assert(rawSettings.showUsagePanelTokenDetails === true, "changed token details switch should be stored as override");
 assert(rawSettings.usagePanelTodayTokenSource === "official", "changed Today token source should be stored as override");
 assert(rawSettings.uiLanguage === "zh-CN", "changed UI language should be stored as override");
+assert(rawSettings.chatWidthMode === "custom", "changed chat width mode should be stored as override");
+assert(rawSettings.chatWidthPixels === 1320, "changed chat width should be stored as override");
 assert(rawSettings.usageRefreshSeconds === 15, "changed numeric field should be stored as override");
 assert(rawSettings.hiddenFileTreePatterns === "dist/**", "changed textarea field should be stored as override");
 
@@ -202,6 +231,7 @@ assert(rawSettings.conversationArchiveRevision === 9, "partial archive metadata 
 assert(rawSettings.collapseSidebarOnStartup === true, "partial metadata save should preserve startup collapse switch");
 assert(rawSettings.enableConversationArchiveSidebar === false, "partial metadata save should preserve archive sidebar switch");
 assert(rawSettings.enableBackgroundWallpaper === true, "partial metadata save should preserve background wallpaper switch");
+assert(rawSettings.enableChatWidthResizer === false, "partial metadata save should preserve chat width resizer switch");
 assert(rawSettings.enableStartupSidebar === true, "partial metadata save should preserve startup sidebar switch");
 assert(rawSettings.enableUsagePanel === false, "partial metadata save should preserve ordinary boolean overrides");
 assert(rawSettings.hiddenFileTreePatterns === "dist/**", "partial metadata save should preserve ordinary textarea overrides");
@@ -212,6 +242,8 @@ assert(rawSettings.usagePanelPingEndpoint === "https://example.com/ping", "parti
 assert(rawSettings.usagePanelPingRefreshSeconds === 20, "partial metadata save should preserve Ping interval");
 assert(rawSettings.showUsagePanelTokenDetails === true, "partial metadata save should preserve token details switch");
 assert(rawSettings.usagePanelTodayTokenSource === "official", "partial metadata save should preserve Today token source");
+assert(rawSettings.chatWidthMode === "custom", "partial metadata save should preserve chat width mode");
+assert(rawSettings.chatWidthPixels === 1320, "partial metadata save should preserve chat width");
 assert(rawSettings.usageRefreshSeconds === 15, "partial metadata save should preserve ordinary numeric overrides");
 
 // 这一段模拟用户切换同步密钥后立即上传，确认旧密钥的本机同步基线不会被沿用。
@@ -287,6 +319,34 @@ settings.saveSettings({
 rawSettings = readStoredSettings();
 assert(rawSettings.usagePanelPingEndpoint === "http://127.0.0.1:12345/ping", "local HTTP Ping endpoint should be stored as override");
 assert(rawSettings.usagePanelPingRefreshSeconds === settings.minUsagePanelPingRefreshSeconds, "short Ping interval should clamp to the minimum");
+
+settings.saveSettings({
+  ...settings.getSettings(),
+  chatWidthMode: "custom",
+  chatWidthPixels: 10,
+});
+rawSettings = readStoredSettings();
+assert(rawSettings.chatWidthMode === "custom", "short custom chat width should keep custom mode");
+assert(rawSettings.chatWidthPixels === settings.minChatWidthPixels, "short chat width should clamp to the minimum");
+
+settings.saveSettings({
+  ...settings.getSettings(),
+  chatWidthMode: "custom",
+  chatWidthPixels: 99999,
+});
+rawSettings = readStoredSettings();
+assert(rawSettings.chatWidthMode === "custom", "large custom chat width should keep custom mode");
+assert(rawSettings.chatWidthPixels === settings.maxChatWidthPixels, "large chat width should clamp to the maximum");
+
+settings.saveSettings({
+  ...settings.getSettings(),
+  chatWidthMode: "official",
+  chatWidthPixels: 1320,
+});
+rawSettings = readStoredSettings();
+assert(settings.getSettings().chatWidthMode === "official", "official chat width mode should read back as native mode");
+assert(!Object.hasOwn(rawSettings, "chatWidthMode"), "official chat width mode should be removed from raw storage");
+assert(!Object.hasOwn(rawSettings, "chatWidthPixels"), "official chat width reset should remove raw custom width");
 
 settings.saveSettings({
   ...settings.getSettings(),

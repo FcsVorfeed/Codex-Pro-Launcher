@@ -45,6 +45,40 @@
     };
   }
 
+  function getDefaultChatWidthPixels() {
+    // 这一段读取设置模型里的默认聊天宽度；测试或旧注入缺失时回到保守默认。
+    // Read the settings-model default chat width and fall back conservatively for tests or older injections.
+    return Number(settingsMenu.settings?.defaultSettings?.chatWidthPixels) || 1100;
+  }
+
+  function normalizeLegacyPulledChatWidthPixels(value) {
+    // 这一段只接受旧云端快照里的明确数字或非空数字字符串，避免 null/空串被误迁移成自定义宽度。
+    // Accept only explicit numeric legacy cloud values so null/empty strings are not migrated as custom widths.
+    const isNumericValue = typeof value === "number" || (typeof value === "string" && value.trim() !== "");
+    if (!isNumericValue) return null;
+    const width = Number(value);
+    if (!Number.isFinite(width)) return null;
+    const minimum = Number(settingsMenu.settings?.minChatWidthPixels) || 560;
+    const maximum = Number(settingsMenu.settings?.maxChatWidthPixels) || 2200;
+    return Math.min(Math.max(Math.round(width), minimum), maximum);
+  }
+
+  function normalizePulledSettings(settings) {
+    // 这一段兼容旧云端快照：只有有效宽度数值但没有模式时，按旧语义迁移宽度模式。
+    // Migrate legacy cloud snapshots: only a valid pixel value without a mode is converted into a width mode.
+    const pulledSettings = settings && typeof settings === "object" && !Array.isArray(settings) ? { ...settings } : {};
+    if (Object.hasOwn(pulledSettings, "chatWidthPixels") && !Object.hasOwn(pulledSettings, "chatWidthMode")) {
+      const migratedWidth = normalizeLegacyPulledChatWidthPixels(pulledSettings.chatWidthPixels);
+      if (migratedWidth == null) {
+        delete pulledSettings.chatWidthPixels;
+      } else {
+        pulledSettings.chatWidthPixels = migratedWidth;
+        pulledSettings.chatWidthMode = migratedWidth !== getDefaultChatWidthPixels() ? "custom" : "official";
+      }
+    }
+    return pulledSettings;
+  }
+
   const cloudSyncBlocks = settingsMenu.cloudSyncBlocks ??= [];
 
   function normalizeCloudSyncBlock(block) {
@@ -486,7 +520,7 @@
           }
           const nextSettings = settings.saveSettings({
             ...settings.getSettings(),
-            ...data.settings,
+            ...normalizePulledSettings(data.settings),
             cloudSyncEndpoint: draftSettings.cloudSyncEndpoint,
             cloudSyncKey: draftSettings.cloudSyncKey,
             enableCloudSettingsSync: draftSettings.enableCloudSettingsSync,

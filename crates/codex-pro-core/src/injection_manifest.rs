@@ -62,6 +62,10 @@ pub const SETTINGS_MENU_SECTION_MODULES: &[SettingsSectionModule] = &[
         path: "src/inject/systems/context-usage-inline/settings.js",
     },
     SettingsSectionModule {
+        owner_system: "chat-width-resizer",
+        path: "src/inject/systems/chat-width-resizer/settings.js",
+    },
+    SettingsSectionModule {
         owner_system: "file-tree-filter",
         path: "src/inject/systems/file-tree-filter/settings.js",
     },
@@ -129,6 +133,10 @@ pub const INJECTABLE_SYSTEMS: &[InjectableSystem] = &[
     InjectableSystem {
         name: "context-usage-inline",
         modules: &["src/inject/systems/context-usage-inline/index.js"],
+    },
+    InjectableSystem {
+        name: "chat-width-resizer",
+        modules: &["src/inject/systems/chat-width-resizer/index.js"],
     },
     InjectableSystem {
         name: "diff-hover-preview",

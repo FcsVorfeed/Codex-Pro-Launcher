@@ -48,6 +48,10 @@ export const settingsMenuSectionModules = [
     path: ["src", "inject", "systems", "context-usage-inline", "settings.js"],
   },
   {
+    ownerSystem: "chat-width-resizer",
+    path: ["src", "inject", "systems", "chat-width-resizer", "settings.js"],
+  },
+  {
     ownerSystem: "file-tree-filter",
     path: ["src", "inject", "systems", "file-tree-filter", "settings.js"],
   },
@@ -122,6 +126,12 @@ export const injectableSystems = [
     name: "context-usage-inline",
     modules: [
       ["src", "inject", "systems", "context-usage-inline", "index.js"],
+    ],
+  },
+  {
+    name: "chat-width-resizer",
+    modules: [
+      ["src", "inject", "systems", "chat-width-resizer", "index.js"],
     ],
   },
   {

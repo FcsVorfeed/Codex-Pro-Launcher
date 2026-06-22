@@ -256,7 +256,8 @@
     // Collect setting keys from registered sections for the left-side modified markers.
     const mapping = {};
     for (const section of getRegisteredSections()) {
-      mapping[section.id] = Array.isArray(section.settingKeys) ? section.settingKeys.slice() : [];
+      const markerKeys = Array.isArray(section.modifiedSettingKeys) ? section.modifiedSettingKeys : section.settingKeys;
+      mapping[section.id] = Array.isArray(markerKeys) ? markerKeys.slice() : [];
     }
     return mapping;
   }

@@ -13,6 +13,8 @@
   const defaultConversationArchiveEndpoint = normalizeLocalConfigString(localSyncConfig.conversationArchiveEndpoint)
     || (defaultCloudSyncEndpoint ? defaultCloudSyncEndpoint.replace("/settings-sync", "/conversation-archive-sync") : "");
   const defaultUsagePanelPingEndpoint = "https://status.openai.com/api/v2/status.json";
+  const defaultChatWidthMode = "official";
+  const defaultChatWidthPixels = 1100;
   const defaultConversationArchiveProfileName = "Default profile";
   const legacyDefaultConversationArchiveProfileName = "默认账号";
   const defaultBackgroundWallpaperImages = normalizeLocalConfigStringList(localAppearanceConfig.defaultBackgroundWallpaperImages).join("\n");
@@ -63,9 +65,12 @@
     conversationArchiveSidebarDirectoryPanelMode: "click",
     conversationArchiveSidebarPanelMode: "hover",
     contextUsageDecimalPlaces: 0,
+    chatWidthMode: defaultChatWidthMode,
+    chatWidthPixels: defaultChatWidthPixels,
     diffHoverFileOpenMode: "review",
     diffHoverPreviewFontSize: "",
     enableBackgroundWallpaper: false,
+    enableChatWidthResizer: true,
     enableCloudSettingsSync: false,
     enableConversationArchiveSync: false,
     enableConversationArchiveSidebar: true,
@@ -111,9 +116,11 @@
     "top right",
   ]);
   const backgroundWallpaperSizes = new Set(["auto", "contain", "cover"]);
+  const chatWidthModes = new Set(["official", "custom"]);
   const maxBackgroundWallpaperImagesLength = 4000;
   const maxCloudSyncEndpointLength = 500;
   const maxCloudSyncKeyLength = 160;
+  const maxChatWidthPixels = 2200;
   const maxConversationArchiveDisplayNameLength = 120;
   const maxContextUsageDecimalPlaces = 3;
   const maxDiffHoverPreviewFontSize = 32;
@@ -124,6 +131,7 @@
   const maxUsagePanelPingEndpointLength = 500;
   const minBackgroundWallpaperIntervalSeconds = 5;
   const minBackgroundWallpaperOpacity = 0;
+  const minChatWidthPixels = 560;
   const minContextUsageDecimalPlaces = 0;
   const minDiffHoverPreviewFontSize = 8;
   const minUsagePanelPingRefreshSeconds = 5;
@@ -488,6 +496,50 @@
     );
   }
 
+  function readChatWidthPixelNumber(value) {
+    // 这一段只接受明确的数字或非空数字字符串，避免 null/空串在 Number() 下被误当成 0。
+    // Accept only explicit numbers or non-empty numeric strings so null/empty strings are not coerced to 0.
+    const isNumericValue = typeof value === "number" || (typeof value === "string" && value.trim() !== "");
+    if (!isNumericValue) return null;
+    const width = Number(value);
+    return Number.isFinite(width) ? width : null;
+  }
+
+  function normalizeChatWidthPixels(value) {
+    // 这一段把聊天区宽度限制在桌面可读范围，实际运行时还会按当前窗口二次钳制。
+    // Clamp chat width into a readable desktop range; runtime clamps again to the current viewport.
+    const width = readChatWidthPixelNumber(value);
+    if (width == null) return defaultSettings.chatWidthPixels;
+    return Math.min(Math.max(Math.round(width), minChatWidthPixels), maxChatWidthPixels);
+  }
+
+  function normalizeLegacyChatWidthPixels(value) {
+    // 这一段只迁移旧版本明确保存过的有效宽度，坏值保持官方默认模式。
+    // Migrate only explicit valid legacy widths; invalid values keep the native-width mode.
+    if (readChatWidthPixelNumber(value) == null) return null;
+    return normalizeChatWidthPixels(value);
+  }
+
+  function normalizeChatWidthMode(value, source) {
+    // 这一段区分官方默认和拖拽后的自定义宽度，并兼容旧版本只保存宽度的配置。
+    // Distinguish native width from dragged custom width while migrating older width-only settings.
+    const sourceObject = getSourceObject(source);
+    const hasExplicitMode = Object.hasOwn(sourceObject, "chatWidthMode");
+    const mode = String(hasExplicitMode ? value : "").trim();
+    if (chatWidthModes.has(mode)) return mode;
+    if (Object.hasOwn(sourceObject, "chatWidthPixels")) {
+      const migratedWidth = normalizeLegacyChatWidthPixels(sourceObject.chatWidthPixels);
+      if (migratedWidth != null && migratedWidth !== defaultSettings.chatWidthPixels) return "custom";
+    }
+    return defaultSettings.chatWidthMode;
+  }
+
+  function normalizeChatWidthResizerEnabled(value) {
+    // 这一段把聊天宽度拖拽开关统一成布尔值，默认启用以改善大屏输入区宽度。
+    // Normalize the chat-width resizer switch into a boolean, defaulting to enabled for wider desktop composers.
+    return value === false ? false : defaultSettings.enableChatWidthResizer;
+  }
+
   function normalizeHiddenFileTreePatterns(value) {
     // 这一段把右侧文件树过滤规则规整成换行列表，避免空规则和重复规则造成额外扫描。
     // Normalize file-tree filter rules into a newline list so empty and duplicate rules do not add extra scanning.
@@ -650,12 +702,15 @@
     { key: "conversationArchiveSidebarDirectoryPanelMode", normalize: normalizeConversationArchiveSidebarDirectoryPanelMode },
     { key: "conversationArchiveSidebarPanelMode", normalize: normalizeConversationArchiveSidebarPanelMode },
     { key: "contextUsageDecimalPlaces", normalize: normalizeContextUsageDecimalPlaces },
+    { key: "chatWidthMode", normalize: normalizeChatWidthMode },
+    { key: "chatWidthPixels", normalize: normalizeChatWidthPixels },
     { key: "diffHoverFileOpenMode", normalize: normalizeDiffHoverFileOpenMode },
     { key: "diffHoverPreviewFontSize", normalize: normalizeDiffHoverPreviewFontSize },
     {
       key: "enableBackgroundWallpaper",
       normalize: (value) => normalizeEnabledSetting(value, defaultSettings.enableBackgroundWallpaper),
     },
+    { key: "enableChatWidthResizer", normalize: normalizeChatWidthResizerEnabled },
     { key: "enableCloudSettingsSync", normalize: normalizeCloudSettingsSyncEnabled, preserveOnPartialSave: true },
     { key: "enableConversationArchiveSync", normalize: normalizeConversationArchiveSyncEnabled, preserveOnPartialSave: true },
     {
@@ -757,7 +812,7 @@
   function normalizeSettingField(field, source, fallbackSource = defaultSettings) {
     // 这一段通过字段自己的 normalize 函数得到稳定值，外部系统不再读未校验配置。
     // Use each field's normalize function to produce stable values so consumers never read unchecked settings.
-    return field.normalize(getSettingSourceValue(field, source, fallbackSource));
+    return field.normalize(getSettingSourceValue(field, source, fallbackSource), getSourceObject(source), getSourceObject(fallbackSource));
   }
 
   function areSettingValuesEqual(field, left, right) {
@@ -808,9 +863,9 @@
   function getSaveValue(field, nextSettingsSource, rawSettings) {
     // 这一段让局部保存只更新传入字段，避免同步元数据写入时清掉其它用户设置。
     // Let partial saves update only provided fields so sync metadata writes do not clear other user settings.
-    if (Object.hasOwn(nextSettingsSource, field.key)) return field.normalize(nextSettingsSource[field.key]);
-    if (field.preserveOnPartialSave !== false && Object.hasOwn(rawSettings, field.key)) return field.normalize(rawSettings[field.key]);
-    return field.normalize(defaultSettings[field.key]);
+    if (Object.hasOwn(nextSettingsSource, field.key)) return field.normalize(nextSettingsSource[field.key], nextSettingsSource, rawSettings);
+    if (field.preserveOnPartialSave !== false && Object.hasOwn(rawSettings, field.key)) return field.normalize(rawSettings[field.key], rawSettings, defaultSettings);
+    return field.normalize(defaultSettings[field.key], rawSettings, defaultSettings);
   }
 
   function applySettingOverride(settings, field, value) {
@@ -862,6 +917,12 @@
       normalizedSettings[field.key] = value;
       applySettingOverride(settings, field, value);
     }
+    if (normalizedSettings.chatWidthMode === "official" && Object.hasOwn(nextSettingsSource, "chatWidthMode")) {
+      // 这一段在用户明确回到官方默认时清掉 px 覆盖，避免旧自定义宽度在下次启动时复活。
+      // Clear the pixel override when the user explicitly returns to native width so old custom widths cannot revive.
+      normalizedSettings.chatWidthPixels = defaultSettings.chatWidthPixels;
+      delete settings.chatWidthPixels;
+    }
     writeRawSettings(settings);
     runtime.i18n?.setLocale?.(normalizedSettings.uiLanguage);
 
@@ -901,6 +962,7 @@
     getSettings,
     maxBackgroundWallpaperImagesLength,
     maxBackgroundWallpaperOpacity,
+    maxChatWidthPixels,
     maxCloudSyncEndpointLength,
     maxCloudSyncKeyLength,
     maxConversationArchiveDisplayNameLength,
@@ -911,6 +973,7 @@
     maxContextUsageDecimalPlaces,
     minBackgroundWallpaperIntervalSeconds,
     minBackgroundWallpaperOpacity,
+    minChatWidthPixels,
     minContextUsageDecimalPlaces,
     minDiffHoverPreviewFontSize,
     minUsagePanelPingRefreshSeconds,

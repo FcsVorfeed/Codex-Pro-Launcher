@@ -177,6 +177,14 @@ const expectedSections = [
     },
   },
   {
+    id: "chat-width-resizer",
+    modulePath: ["src", "inject", "systems", "chat-width-resizer", "settings.js"],
+    ownerSystem: "chat-width-resizer",
+    settingKeys: ["enableChatWidthResizer", "chatWidthMode", "chatWidthPixels"],
+    hiddenSettingKeys: ["chatWidthMode", "chatWidthPixels"],
+    modifiedSettingKeys: ["enableChatWidthResizer"],
+  },
+  {
     id: "file-tree",
     modulePath: ["src", "inject", "systems", "file-tree-filter", "settings.js"],
     ownerSystem: "file-tree-filter",
@@ -283,8 +291,10 @@ function createSettingsApi() {
     maxConversationArchiveDisplayNameLength: 80,
     maxDiffHoverPreviewFontSize: 32,
     maxExternalDiffToolPathLength: 1000,
+    maxChatWidthPixels: 2200,
     minBackgroundWallpaperIntervalSeconds: 5,
     minBackgroundWallpaperOpacity: 0,
+    minChatWidthPixels: 560,
     minDiffHoverPreviewFontSize: 8,
     minUsageRefreshSeconds: 5,
     minContextUsageDecimalPlaces: 0,
@@ -347,9 +357,17 @@ async function fileExists(filePath) {
 function createFakeControl(properties = {}) {
   // 这一段创建最小表单控件替身，用于在 Node VM 外验证共享表单绑定行为。
   // Create a minimal form-control stand-in for validating shared form binding outside a browser VM.
+  const listeners = new Map();
   const { field = null, ...controlProperties } = properties;
   return {
-    addEventListener() {},
+    addEventListener(type, handler) {
+      const handlers = listeners.get(type) || [];
+      handlers.push(handler);
+      listeners.set(type, handlers);
+    },
+    async dispatch(type, event = {}) {
+      for (const handler of listeners.get(type) || []) await handler({ target: this, ...event });
+    },
     dataset: {},
     disabled: false,
     closest(selector) {
@@ -389,6 +407,8 @@ function assertFormBindingBehavior(formBinding) {
         usagePanelPingRefreshSeconds: 10,
         usagePanelTodayTokenSource: "observer",
         enableUsagePanel: true,
+        chatWidthMode: "custom",
+        chatWidthPixels: 1320,
         mouseGestureShortcuts: { L: "Ctrl+L" },
         usagePanelAdaptiveWidth: false,
         usageRefreshSeconds: 30,
@@ -405,6 +425,8 @@ function assertFormBindingBehavior(formBinding) {
       { key: "usagePanelTodayTokenSource" },
       { key: "usagePanelAdaptiveWidth" },
       { key: "usageRefreshSeconds" },
+      { key: "chatWidthMode" },
+      { key: "chatWidthPixels" },
       { key: "cloudSyncRevision" },
       { key: "mouseGestureShortcuts" },
     ],
@@ -478,11 +500,15 @@ function assertFormBindingBehavior(formBinding) {
     draftSettings.mouseGestureShortcuts?.L === "Ctrl+L",
     "form-binding must leave mouseGestureShortcuts to the mouse gesture section",
   );
+  assert(draftSettings.chatWidthMode === "custom", "form-binding must preserve hidden chat width mode fields");
+  assert(draftSettings.chatWidthPixels === 1320, "form-binding must preserve hidden chat width pixel fields");
 
   formBinding.writeSettingsToForm({
     currentSettings: {
       cloudSyncRevision: 9,
       enableUsagePanel: true,
+      chatWidthMode: "official",
+      chatWidthPixels: 1100,
       mouseGestureShortcuts: { L: "" },
       showUsageInLowerLeftPanel: true,
       showUsagePanelTokenDetails: true,
@@ -547,7 +573,7 @@ function assertFormBindingBehavior(formBinding) {
   assert(fakeForm.elements.usagePanelAdaptiveWidth.disabled === true, "form-binding must disable multi-dependent fields when the primary dependency fails");
 }
 
-function createSectionBindContext(settingsMenu, sectionId) {
+function createSectionBindContext(settingsMenu, sectionId, overrides = {}) {
   // 这一段为复杂内置 section 构造最小 bind(context)，只验证元数据读写 hook 是否注册和工作。
   // Build a minimal bind(context) for complex builtin sections, validating only metadata hook registration and behavior.
   const controls = new Map();
@@ -584,14 +610,14 @@ function createSectionBindContext(settingsMenu, sectionId) {
       context.afterSaveHandlers.push(handler);
     },
     afterSaveHandlers: [],
+    controls,
     renderModifiedState() {},
     root,
     runtime: windowObject.__codexProRuntime,
-    saveAndRefreshSettings() {
-      return {};
-    },
-    settings: {
+    saveAndRefreshSettings: overrides.saveAndRefreshSettings || (() => ({})),
+    settings: overrides.settings || {
       defaultSettings: {
+        chatWidthPixels: 1100,
         cloudSyncLastSyncAt: "",
         cloudSyncRevision: 0,
         conversationArchiveLastSyncAt: "",
@@ -602,7 +628,7 @@ function createSectionBindContext(settingsMenu, sectionId) {
     },
     settingsWriters: [],
     signal: undefined,
-    writeSettingsToForm() {},
+    writeSettingsToForm: overrides.writeSettingsToForm || (() => {}),
   };
 
   if (sectionId === "cloud-sync") {
@@ -622,7 +648,9 @@ function createSectionBindContext(settingsMenu, sectionId) {
       resetSyncLicenseState() {},
       syncLicenseStatusEventName: "codex-pro:sync-license-status",
       validateSyncLicense() {},
+      ...overrides.cloudSync,
     };
+    settingsMenu.settings = context.settings;
     context.form.elements.cloudSyncKey = createFakeControl({ type: "password" });
     getControl("[data-codex-pro-cloud-sync-get-key]");
     getControl("[data-codex-pro-cloud-sync-validate-key]");
@@ -635,6 +663,12 @@ function createSectionBindContext(settingsMenu, sectionId) {
     getControl("[data-codex-pro-pet-sync-status]");
   }
   return context;
+}
+
+async function flushMicrotasks() {
+  // 这一段给 click handler 内部的 async 下载流程让出微任务队列。
+  // Yield to the microtask queue used by async download handlers.
+  for (let index = 0; index < 5; index += 1) await Promise.resolve();
 }
 
 function assertMetadataSectionBind(settingsMenu, sectionId, expectedPatch) {
@@ -661,6 +695,84 @@ await assertFileExists(i18nPath);
 await assertFileExists(cloudSyncPath);
 for (const section of expectedBuiltinSections) {
   await assertFileExists(pathFromParts(section.modulePath));
+}
+
+async function assertCloudSyncLegacyChatWidthDownload(settingsMenu) {
+  // 这一段模拟云端旧格式下载，确保有效旧宽度迁移、坏旧宽度不误迁移。
+  // Simulate legacy cloud downloads so valid widths migrate and invalid widths do not become custom.
+  const section = settingsMenu.sections.find((candidate) => candidate.id === "cloud-sync");
+  const savedPayloads = [];
+  const currentSettings = {
+    chatWidthMode: "official",
+    chatWidthPixels: 1100,
+    cloudSyncEndpoint: "https://example.com/settings",
+    cloudSyncKey: "valid-sync-key-for-test",
+    cloudSyncLastSyncAt: "",
+    cloudSyncRevision: 0,
+    enableCloudSettingsSync: false,
+  };
+  const settingsApi = {
+    defaultSettings: {
+      chatWidthPixels: 1100,
+      cloudSyncLastSyncAt: "",
+      cloudSyncRevision: 0,
+    },
+    getSettings() {
+      return { ...currentSettings };
+    },
+    maxChatWidthPixels: 2200,
+    minChatWidthPixels: 560,
+    saveSettings(nextSettings) {
+      savedPayloads.push(nextSettings);
+      return { ...currentSettings, ...nextSettings };
+    },
+  };
+  const context = createSectionBindContext(settingsMenu, "cloud-sync", {
+    cloudSync: {
+      async pullSettings() {
+        return {
+          exists: true,
+          revision: 5,
+          settings: { chatWidthPixels: 1320 },
+          updatedAt: "2026-06-22T00:00:00.000Z",
+        };
+      },
+    },
+    saveAndRefreshSettings() {
+      return { ...currentSettings };
+    },
+    settings: settingsApi,
+  });
+  section.bind(context);
+  await context.controls.get("[data-codex-pro-cloud-sync-download]").dispatch("click");
+  await flushMicrotasks();
+  const validPayload = savedPayloads.at(-1);
+  assert(validPayload.chatWidthMode === "custom", "legacy cloud width must migrate to custom mode");
+  assert(validPayload.chatWidthPixels === 1320, "legacy cloud width must preserve the pulled width");
+
+  savedPayloads.length = 0;
+  const invalidContext = createSectionBindContext(settingsMenu, "cloud-sync", {
+    cloudSync: {
+      async pullSettings() {
+        return {
+          exists: true,
+          revision: 6,
+          settings: { chatWidthPixels: null },
+          updatedAt: "2026-06-22T00:01:00.000Z",
+        };
+      },
+    },
+    saveAndRefreshSettings() {
+      return { ...currentSettings };
+    },
+    settings: settingsApi,
+  });
+  section.bind(invalidContext);
+  await invalidContext.controls.get("[data-codex-pro-cloud-sync-download]").dispatch("click");
+  await flushMicrotasks();
+  const invalidPayload = savedPayloads.at(-1);
+  assert(invalidPayload.chatWidthMode === "official", "invalid legacy cloud width must keep native mode");
+  assert(invalidPayload.chatWidthPixels === 1100, "invalid legacy cloud width must not force a custom width");
 }
 for (const block of expectedCloudSyncBlocks) {
   await assertFileExists(pathFromParts(block.modulePath));
@@ -817,6 +929,10 @@ assert(
   "settings-menu openDialog must route stale activeSection through fallback logic",
 );
 assert(
+  viewSource.includes("modifiedSettingKeys") && viewSource.includes("section.settingKeys"),
+  "settings-menu view must allow sections to keep hidden state out of left-nav modified markers",
+);
+assert(
   viewSource.includes("codex-pro-settings-update-tooltip") &&
     viewSource.includes("settings.updateCheck.hoverAvailable") &&
     viewSource.includes("bindUpdateTooltip(trigger, signal)"),
@@ -878,6 +994,14 @@ assert(pageSyncableSettingKeys.includes("usagePanelPingRefreshSeconds"), "cloud 
 assert(
   cloudSyncSource.includes('new Set(["zh-CN", "en-US", "ja-JP"])') && cloudSyncSource.includes('Object.hasOwn(payload, "uiLanguage")'),
   "settings-menu cloud sync must sanitize uiLanguage values",
+);
+assert(
+  cloudSyncSectionSource.includes("normalizePulledSettings") &&
+    cloudSyncSectionSource.includes("normalizeLegacyPulledChatWidthPixels") &&
+    cloudSyncSectionSource.includes('Object.hasOwn(pulledSettings, "chatWidthPixels")') &&
+    cloudSyncSectionSource.includes("delete pulledSettings.chatWidthPixels") &&
+    cloudSyncSectionSource.includes('migratedWidth !== getDefaultChatWidthPixels() ? "custom" : "official"'),
+  "settings-menu cloud download must migrate only valid legacy chat width snapshots before saving",
 );
 assert(
   rustCloudSyncSource.includes('language == "zh-CN" || language == "en-US" || language == "ja-JP"') && rustCloudSyncSource.includes('"uiLanguage"'),
@@ -1002,6 +1126,7 @@ assertMetadataSectionBind(settingsMenu, "cloud-sync", {
   petSyncLastSyncAt: "2026-06-10T00:01:00.000Z",
   petSyncRevision: 13,
 });
+await assertCloudSyncLegacyChatWidthDownload(settingsMenu);
 
 for (const expectedSection of [...expectedBuiltinSections, ...expectedSections]) {
   const section = registeredSections.find((candidate) => candidate.id === expectedSection.id);
@@ -1014,6 +1139,12 @@ for (const expectedSection of [...expectedBuiltinSections, ...expectedSections])
     JSON.stringify(section.settingKeys) === JSON.stringify(expectedSection.settingKeys),
     `${expectedSection.id} settingKeys mismatch`,
   );
+  if (expectedSection.modifiedSettingKeys) {
+    assert(
+      JSON.stringify(section.modifiedSettingKeys) === JSON.stringify(expectedSection.modifiedSettingKeys),
+      `${expectedSection.id} modifiedSettingKeys mismatch`,
+    );
+  }
   assertSameObject(section.fieldDependencies || {}, expectedSection.fieldDependencies || {}, `${expectedSection.id} fieldDependencies`);
   if (expectedSection.requiresBind) {
     assert(typeof section.bind === "function", `${expectedSection.id} section must expose bind(context)`);
@@ -1037,6 +1168,7 @@ for (const expectedSection of [...expectedBuiltinSections, ...expectedSections])
     );
   }
   for (const key of expectedSection.settingKeys) {
+    if (expectedSection.hiddenSettingKeys?.includes(key)) continue;
     if (key === "mouseGestureShortcuts") {
       assert(
         html.includes('data-codex-pro-setting-key="mouseGestureShortcuts:'),

@@ -338,10 +338,13 @@ fn cloud_sync_allowed_setting_keys() -> HashSet<&'static str> {
         "backgroundWallpaperRandom",
         "backgroundWallpaperSize",
         "collapseSidebarOnStartup",
+        "chatWidthMode",
+        "chatWidthPixels",
         "contextUsageDecimalPlaces",
         "diffHoverFileOpenMode",
         "diffHoverPreviewFontSize",
         "enableBackgroundWallpaper",
+        "enableChatWidthResizer",
         "enableConversationArchiveSidebar",
         "conversationArchiveSidebarDirectoryPanelMode",
         "conversationArchiveSidebarPanelMode",
@@ -429,12 +432,18 @@ mod tests {
                 "syncKey": "1234567890123456",
                 "settings": {
                     "uiLanguage": "zh-CN",
+                    "enableChatWidthResizer": true,
+                    "chatWidthMode": "custom",
+                    "chatWidthPixels": 1320,
                     "localSecretPath": "C:/secret",
                     "backgroundWallpaperImages": "https://example.com/a.webp\nhttps://example.com/a.webp\nhttps://127.0.0.1/b.webp\nhttps://localhost/c.webp\nhttps://10.0.0.1/d.webp\nhttps://192.168.0.1/e.webp\nhttps://172.16.0.1/f.webp\nhttps://169.254.0.1/g.webp\nhttps://[::1]/h.webp\nhttps://[fc00::1]/i.webp\nhttps://[fe80::1]/j.webp\nhttps://[::ffff:127.0.0.1]/k.webp\nhttp://example.com/l.webp"
                 }
             }
         })).unwrap();
         assert_eq!(request.body["settings"]["uiLanguage"], "zh-CN");
+        assert_eq!(request.body["settings"]["enableChatWidthResizer"], true);
+        assert_eq!(request.body["settings"]["chatWidthMode"], "custom");
+        assert_eq!(request.body["settings"]["chatWidthPixels"], 1320);
         assert!(request.body["settings"].get("localSecretPath").is_none());
         assert_eq!(
             request.body["settings"]["backgroundWallpaperImages"],
