@@ -189,8 +189,6 @@ try {
   if ($artifactVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
     throw "build artifact has invalid ProductVersion: $artifactVersion"
   }
-  $releaseAssetPath = Join-Path (Split-Path -Parent $artifactPath) "Codex-Pro-Launcher-v$artifactVersion.exe"
-  Write-ArtifactInfo -ArtifactPath $releaseAssetPath -Title "Fallback EXE Asset"
   $releaseZipAssetPath = Join-Path (Split-Path -Parent $artifactPath) "Codex-Pro-Launcher-v$artifactVersion-windows.zip"
   Write-ArtifactInfo -ArtifactPath $releaseZipAssetPath -Title "Primary ZIP Asset"
   $releaseIndexAssetPath = Join-Path (Split-Path -Parent $artifactPath) "latest.json"

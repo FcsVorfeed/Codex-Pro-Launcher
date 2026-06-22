@@ -300,7 +300,6 @@ function printReleaseSummary(currentVersion, targetVersion, dryRun) {
   console.log(`${prefix} release version: ${currentVersion} -> ${targetVersion}`);
   console.log(`Git tag: v${targetVersion}`);
   console.log(`Primary release asset: private/build/rust/Codex-Pro-Launcher-v${targetVersion}-windows.zip`);
-  console.log(`Fallback exe asset: private/build/rust/Codex-Pro-Launcher-v${targetVersion}.exe`);
   console.log("Release index: private/build/rust/latest.json");
 }
 

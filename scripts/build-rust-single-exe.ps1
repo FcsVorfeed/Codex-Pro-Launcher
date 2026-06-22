@@ -87,7 +87,6 @@ $outputDir = Join-Path $repoRoot "private\build\rust"
 $releaseVersion = Get-WorkspacePackageVersion
 $repositoryUrl = Get-WorkspaceRepositoryUrl
 $outputExe = Join-Path $outputDir "Codex-Pro-Launcher.exe"
-$versionedOutputExe = Join-Path $outputDir "Codex-Pro-Launcher-v$releaseVersion.exe"
 $versionedOutputZip = Join-Path $outputDir "Codex-Pro-Launcher-v$releaseVersion-windows.zip"
 $latestJsonPath = Join-Path $outputDir "latest.json"
 $targetDir = Join-Path $repoRoot "private\target"
@@ -310,23 +309,27 @@ if (-not $SkipTests) {
 cargo build --target-dir $targetDir --release --bin Codex-Pro-Launcher
 Assert-LastExitCode "cargo build --target-dir $targetDir --release --bin Codex-Pro-Launcher"
 
-# 这一段复制最终 exe 到发布目录，并生成 GitHub Release 主下载 zip。
-# Copy the final executable to the release directory and create the primary GitHub Release zip.
+# 这一段复制最终 exe 到发布目录，并只生成 GitHub Release 主下载 zip。
+# Copy the final executable locally and generate only the primary GitHub Release zip.
 New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
 Copy-Item -Force (Join-Path $targetDir "release\Codex-Pro-Launcher.exe") $outputExe
-Copy-Item -Force $outputExe $versionedOutputExe
+$legacyDirectExeAsset = Join-Path $outputDir ("Codex-Pro-Launcher-v{0}.exe" -f $releaseVersion)
+if (Test-Path -LiteralPath $legacyDirectExeAsset) {
+  # 这一段清理旧版直接 exe 发布资产，避免后续人工上传到 GitHub Release。
+  # Remove the legacy direct EXE release asset so future uploads cannot pick it by mistake.
+  Remove-Item -LiteralPath $legacyDirectExeAsset -Force
+}
 if (Test-Path -LiteralPath $versionedOutputZip) {
   Remove-Item -LiteralPath $versionedOutputZip -Force
 }
 Compress-Archive -LiteralPath $outputExe -DestinationPath $versionedOutputZip
-Write-ReleaseLatestJson -Path $latestJsonPath -Version $releaseVersion -RepositoryUrl $repositoryUrl -AssetPaths @($versionedOutputZip, $versionedOutputExe)
+Write-ReleaseLatestJson -Path $latestJsonPath -Version $releaseVersion -RepositoryUrl $repositoryUrl -AssetPaths @($versionedOutputZip)
 
 # 这一段输出体积并提示验收风险。
 # Print size and warn when it exceeds the acceptance target.
 $sizeBytes = (Get-Item $outputExe).Length
 $sizeMb = [Math]::Round($sizeBytes / 1MB, 2)
 Write-Host "Rust launcher: $outputExe"
-Write-Host "Release asset: $versionedOutputExe"
 Write-Host "Release ZIP asset: $versionedOutputZip"
 Write-Host "Release index: $latestJsonPath"
 Write-Host "Version: $releaseVersion"
@@ -340,7 +343,6 @@ if ($Desktop) {
   # Optionally copy to Desktop for manual smoke testing.
   $desktop = [Environment]::GetFolderPath("Desktop")
   Copy-Item -Force $outputExe (Join-Path $desktop "Codex-Pro-Launcher.exe")
-  Copy-Item -Force $versionedOutputExe (Join-Path $desktop "Codex-Pro-Launcher-v$releaseVersion.exe")
   Copy-Item -Force $versionedOutputZip (Join-Path $desktop "Codex-Pro-Launcher-v$releaseVersion-windows.zip")
   Copy-Item -Force $latestJsonPath (Join-Path $desktop "latest.json")
   Write-Host "Copied to Desktop."

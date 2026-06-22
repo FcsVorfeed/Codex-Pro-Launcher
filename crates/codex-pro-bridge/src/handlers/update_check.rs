@@ -346,8 +346,8 @@ fn normalize_asset_name(value: &str) -> Option<String> {
 /// 这一段选择当前平台优先的更新资产。
 /// Select the preferred update asset for the current platform.
 fn select_update_asset(assets: &[ReleaseAsset]) -> Option<ReleaseAsset> {
-    // 这一段 Windows 优先 zip，再回退 exe；其它平台保留宽松 platform rank 以便后续扩展。
-    // Prefer ZIP then EXE on Windows, with a loose platform rank kept for future expansion.
+    // 这一段 Windows 只接受 zip，避免把单独 exe 作为更新下载目标。
+    // Accept only ZIP on Windows so direct EXE files are not offered as update downloads.
     assets
         .iter()
         .filter_map(|asset| {
@@ -365,9 +365,6 @@ fn platform_asset_rank(name: &str) -> u8 {
         if name.contains("codex-pro-launcher") && name.contains("windows") && name.ends_with(".zip")
         {
             return 0;
-        }
-        if name.contains("codex-pro-launcher") && name.ends_with(".exe") {
-            return 1;
         }
         return 100;
     }
@@ -455,8 +452,8 @@ mod tests {
 
     #[test]
     fn latest_json_payload_selects_windows_zip() {
-        // 这一段模拟发布索引，确认 Windows 主资产优先选择 zip。
-        // Simulate the release index and confirm the Windows primary asset prefers the ZIP.
+        // 这一段模拟发布索引，确认 Windows 主资产只选择 zip。
+        // Simulate the release index and confirm the Windows primary asset selects only the ZIP.
         let release = release_from_latest_json_payload(&json!({
             "version": "v1.1.0",
             "url": "https://github.com/FcsVorfeed/Codex-Pro-Launcher/releases/tag/v1.1.0",
@@ -479,6 +476,26 @@ mod tests {
                 release.asset.unwrap().name,
                 "Codex-Pro-Launcher-v1.1.0-windows.zip"
             );
+        }
+    }
+
+    #[test]
+    fn latest_json_payload_ignores_direct_exe_asset() {
+        // 这一段确认更新检查不会把单独 exe 暴露为下载目标。
+        // Confirm update-check does not expose a direct EXE as the download target.
+        let release = release_from_latest_json_payload(&json!({
+            "version": "v1.1.0",
+            "url": "https://github.com/FcsVorfeed/Codex-Pro-Launcher/releases/tag/v1.1.0",
+            "assets": [
+                {
+                    "name": "Codex-Pro-Launcher-v1.1.0.exe",
+                    "url": "https://github.com/FcsVorfeed/Codex-Pro-Launcher/releases/download/v1.1.0/Codex-Pro-Launcher-v1.1.0.exe"
+                }
+            ]
+        })).unwrap();
+
+        if cfg!(windows) {
+            assert!(release.asset.is_none());
         }
     }
 

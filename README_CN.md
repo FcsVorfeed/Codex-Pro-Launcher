@@ -32,11 +32,11 @@ https://github.com/user-attachments/assets/ea5e3733-dc0d-4ed2-8222-363b3f830d75
 
 从 [GitHub Releases](https://github.com/FcsVorfeed/Codex-Pro-Launcher/releases) 下载最新 Windows 发布文件：
 
-- Windows：`Codex-Pro-Launcher-vX.Y.Z.exe`
+- Windows：`Codex-Pro-Launcher-vX.Y.Z-windows.zip`
 
 使用前请先安装并登录官方 Codex Desktop。
 
-双击 `Codex-Pro-Launcher-vX.Y.Z.exe`。Codex-Pro-Launcher 会启动或复用官方 Codex App、将窗口置前，并通过 CDP 注入增强模块。
+解压 ZIP 后双击其中的 `Codex-Pro-Launcher.exe`。Codex-Pro-Launcher 会启动或复用官方 Codex App、将窗口置前，并通过 CDP 注入增强模块。
 
 如果只想回到原版体验，直接从官方 Codex App 启动即可。Codex-Pro-Launcher 不替换 Codex，也不修改 Codex 原始安装文件。
 
@@ -197,7 +197,7 @@ npm run release:version -- --version 1.0.0
 npm run build:rust
 ```
 
-发布构建完成后会在 `private/build/rust/` 同时生成固定最新产物 `Codex-Pro-Launcher.exe` 和正式发布资产 `Codex-Pro-Launcher-vX.Y.Z.exe`。GitHub Release 上传带版本号的文件。
+发布构建完成后会在 `private/build/rust/` 生成固定本地产物 `Codex-Pro-Launcher.exe` 和正式发布资产 `Codex-Pro-Launcher-vX.Y.Z-windows.zip`。GitHub Release 只上传 ZIP，不上传单独 `.exe`。
 
 本地开发时，每次新 clone 后先安装公开边界 Git hooks：
 

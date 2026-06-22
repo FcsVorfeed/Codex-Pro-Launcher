@@ -32,11 +32,11 @@ https://github.com/user-attachments/assets/ea5e3733-dc0d-4ed2-8222-363b3f830d75
 
 Download the latest Windows release asset from [GitHub Releases](https://github.com/FcsVorfeed/Codex-Pro-Launcher/releases):
 
-- Windows: `Codex-Pro-Launcher-vX.Y.Z.exe`
+- Windows: `Codex-Pro-Launcher-vX.Y.Z-windows.zip`
 
 Before launching, install and sign in to the official Codex Desktop app.
 
-Double-click `Codex-Pro-Launcher-vX.Y.Z.exe`. Codex-Pro-Launcher will start or reuse the official Codex App, bring it to the front, and inject the enhancement modules through CDP.
+Extract the ZIP, then double-click `Codex-Pro-Launcher.exe`. Codex-Pro-Launcher will start or reuse the official Codex App, bring it to the front, and inject the enhancement modules through CDP.
 
 If you want the stock Codex experience, launch the official Codex App directly. Codex-Pro-Launcher does not replace Codex and does not modify the Codex installation files.
 
@@ -197,7 +197,7 @@ npm run release:version -- --version 1.0.0
 npm run build:rust
 ```
 
-The release build writes both `private/build/rust/Codex-Pro-Launcher.exe` as the fixed latest artifact and `private/build/rust/Codex-Pro-Launcher-vX.Y.Z.exe` as the GitHub Release upload asset.
+The release build writes `private/build/rust/Codex-Pro-Launcher.exe` as the fixed local artifact and `private/build/rust/Codex-Pro-Launcher-vX.Y.Z-windows.zip` as the GitHub Release upload asset. Do not upload the standalone `.exe` as a release asset.
 
 For local development, install the public-boundary Git hooks once per clone:
 

@@ -32,11 +32,11 @@ https://github.com/user-attachments/assets/ea5e3733-dc0d-4ed2-8222-363b3f830d75
 
 [GitHub Releases](https://github.com/FcsVorfeed/Codex-Pro-Launcher/releases) から最新の Windows リリースファイルをダウンロードします。
 
-- Windows: `Codex-Pro-Launcher-vX.Y.Z.exe`
+- Windows: `Codex-Pro-Launcher-vX.Y.Z-windows.zip`
 
 起動する前に、公式 Codex Desktop をインストールしてサインインしておいてください。
 
-`Codex-Pro-Launcher-vX.Y.Z.exe` をダブルクリックします。Codex-Pro-Launcher は公式 Codex App を起動または再利用し、前面に表示して、CDP 経由で拡張モジュールを注入します。
+ZIP を展開し、その中の `Codex-Pro-Launcher.exe` をダブルクリックします。Codex-Pro-Launcher は公式 Codex App を起動または再利用し、前面に表示して、CDP 経由で拡張モジュールを注入します。
 
 素の Codex 体験に戻したい場合は、公式 Codex App を直接起動してください。Codex-Pro-Launcher は Codex を置き換えず、Codex のインストールファイルも変更しません。
 
@@ -197,7 +197,7 @@ npm run release:version -- --version 1.0.0
 npm run build:rust
 ```
 
-リリースビルド後は `private/build/rust/Codex-Pro-Launcher.exe` が固定の最新成果物、`private/build/rust/Codex-Pro-Launcher-vX.Y.Z.exe` が GitHub Release へアップロードする正式アセットになります。
+リリースビルド後は `private/build/rust/Codex-Pro-Launcher.exe` が固定のローカル成果物、`private/build/rust/Codex-Pro-Launcher-vX.Y.Z-windows.zip` が GitHub Release へアップロードする正式アセットになります。単独の `.exe` は Release アセットとしてアップロードしません。
 
 ローカル開発では、新しい clone ごとに公開境界用の Git hooks を一度だけインストールしてください。
 
