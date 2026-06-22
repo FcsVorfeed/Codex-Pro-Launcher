@@ -49,15 +49,23 @@ Join the community channels to discuss usage, report issues, or suggest new feat
 
 The starting point is simple: Codex is already part of daily work, and I do not want an extra tool to become another thing to manage. Codex-Pro-Launcher is meant to feel like a quiet layer around the existing workflow. Most of the time it stays out of the way; when you need usage context, latency signals, conversation history, or a way to continue work on another machine, the information is already close at hand.
 
-🫧 **Quiet by default.** It stays close to the original Codex App interaction model and places enhancements where users already expect to look. If you want the stock experience, launch Codex App normally; Codex-Pro-Launcher does not leave irreversible changes behind.
+🫧 **Quiet by default.**  
+It stays close to the original Codex App interaction model and places enhancements where users already expect to look. If you want the stock experience, launch Codex App normally; Codex-Pro-Launcher does not leave irreversible changes behind.
 
-📊 **Less guessing around usage.** 5-hour / weekly usage, current conversation context, input and output tokens, and network latency are shown compactly inside existing surfaces. This makes it easier to anticipate when context compression may happen and to tell whether a slowdown comes from network latency or model response time.
+📊 **Less guessing around usage.**  
+5-hour / weekly usage, current conversation context, input and output tokens, and network latency are shown compactly inside existing surfaces. This makes it easier to anticipate when context compression may happen and to tell whether a slowdown comes from network latency or model response time.
 
-☁️ **Multi-device sync without touching the originals.** I use Codex across multiple machines, and scattered conversations quickly become painful when work needs to continue from a different device. Codex-Pro-Launcher sync works through export, encryption, packaging, and preview rather than rewriting the original Codex conversation data or damaging local originals.
+☁️ **Multi-device sync without touching the originals.**  
+I use Codex across multiple machines, and scattered conversations quickly become painful when work needs to continue from a different device. Codex-Pro-Launcher sync works through export, encryption, packaging, and preview rather than rewriting the original Codex conversation data or damaging local originals.
 
-🎮 **Built by a game designer for a real workflow.** I am a game designer with nearly two decades of experience, and making games is my biggest personal passion. Codex-Pro-Launcher grew naturally out of my daily Codex use. Revenue from license codes first helps cover remote sync server and storage costs, and also supports my continued work on game projects and long-term maintenance of this tool.
+🎮 **Built by a game designer for a real workflow.**  
+I am a game designer with nearly two decades of experience, and making games is my biggest personal passion. Codex-Pro-Launcher grew naturally out of my daily Codex use. Revenue from license codes first helps cover remote sync server and storage costs, and also supports my continued work on game projects and long-term maintenance of this tool.
 
 ## 🧩 Feature Preview
+
+### The pet now supports custom sound effects!
+
+https://github.com/user-attachments/assets/206dc63c-c403-49fb-a37c-5186894a3a3c
 
 ### 📊 Clearer Usage and Context
 
