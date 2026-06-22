@@ -61,23 +61,6 @@ The starting point is simple: Codex is already part of daily work, and I do not 
 
 🎮 **Built by a game designer for a real workflow.** I am a game designer with nearly two decades of experience, and making games is my biggest personal passion. Codex-Pro-Launcher grew naturally out of my daily Codex use. Revenue from license codes first helps cover remote sync server and storage costs, and also supports my continued work on game projects and long-term maintenance of this tool.
 
-## ✨ Highlights
-
-| Capability | What it solves | Status |
-| --- | --- | --- |
-| 🚀 External launcher | Starts, reuses, and brings Codex to the front, then repairs injection when needed | Implemented |
-| 🧠 Rust native bridge | Lets injected UI modules request controlled local capabilities without shipping Node / .NET runtime | Implemented |
-| 📊 Usage and context display | Shows 5-hour / weekly usage, today's tokens, current conversation tokens, and context usage at a glance | Implemented |
-| 🔍 Diff hover preview | Quickly reviews changed files, jumps into single-file preview, or opens an external diff tool | Implemented |
-| 🌳 File tree enhancements | Hides noisy files, reveals the active preview file, and drags right-side file tabs into chat | Implemented |
-| 🖱️ Mouse gestures | Turns middle-click, shortcuts, and gestures into faster in-window operations | Implemented |
-| 🖼️ Background carousel | Rotates multiple background images with fade transitions and lightweight personalization | Implemented |
-| 🧲 Advanced drag and drop | Drags right-side file tabs or left-side conversation rows into the chat composer | Implemented |
-| ☁️ Conversation sync | Syncs archived conversations to a user-configured remote endpoint for multi-device viewing and backup | Implemented |
-| ⚙️ Settings center | Organizes feature switches, behavior, appearance, and sync options by module | Implemented |
-| 🎨 Appearance tweaks | Adds background images, font overrides, startup sidebar behavior, and other experience refinements | Implemented |
-| 🔄 Settings / pet / conversation archive sync | Syncs multi-device workflow state after the user configures the connection | Implemented |
-
 ## 🧩 Feature Preview
 
 ### 📊 Clearer Usage and Context
@@ -126,6 +109,23 @@ Conversation archive sync exports, encrypts, packages, and syncs conversations a
 ### 🔄 More Complete Multi-Device Workflow
 
 Settings, pet resources, and conversation archives are optional sync capabilities. Sync features require a user-configured connection, and the public client source keeps that boundary explicit.
+
+## ✨ Highlights
+
+| Capability | What it solves | Status |
+| --- | --- | --- |
+| 🚀 External launcher | Starts, reuses, and brings Codex to the front, then repairs injection when needed | Implemented |
+| 🧠 Rust native bridge | Lets injected UI modules request controlled local capabilities without shipping Node / .NET runtime | Implemented |
+| 📊 Usage and context display | Shows 5-hour / weekly usage, today's tokens, current conversation tokens, and context usage at a glance | Implemented |
+| 🔍 Diff hover preview | Quickly reviews changed files, jumps into single-file preview, or opens an external diff tool | Implemented |
+| 🌳 File tree enhancements | Hides noisy files, reveals the active preview file, and drags right-side file tabs into chat | Implemented |
+| 🖱️ Mouse gestures | Turns middle-click, shortcuts, and gestures into faster in-window operations | Implemented |
+| 🖼️ Background carousel | Rotates multiple background images with fade transitions and lightweight personalization | Implemented |
+| 🧲 Advanced drag and drop | Drags right-side file tabs or left-side conversation rows into the chat composer | Implemented |
+| ☁️ Conversation sync | Syncs archived conversations to a user-configured remote endpoint for multi-device viewing and backup | Implemented |
+| ⚙️ Settings center | Organizes feature switches, behavior, appearance, and sync options by module | Implemented |
+| 🎨 Appearance tweaks | Adds background images, font overrides, startup sidebar behavior, and other experience refinements | Implemented |
+| 🔄 Settings / pet / conversation archive sync | Syncs multi-device workflow state after the user configures the connection | Implemented |
 
 ## 🛡️ Architecture Boundary
 
