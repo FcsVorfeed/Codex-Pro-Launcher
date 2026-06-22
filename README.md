@@ -26,7 +26,7 @@ Codex-Pro-Launcher is an external enhancement launcher for Codex App. It does no
 
 Its goal is not to replace Codex App or modify the original Codex App installation files. It keeps the official client experience intact while filling in high-frequency workflow gaps that interrupt daily development.
 
-<img width="2160" height="1220" alt="QQ截图20260622080734" src="https://github.com/user-attachments/assets/368b2de2-9e28-475c-8b1f-53b556624eba" />
+https://github.com/user-attachments/assets/ea5e3733-dc0d-4ed2-8222-363b3f830d75
 
 ## ⚡ Quick Start
 
@@ -83,6 +83,7 @@ The starting point is simple: Codex is already part of daily work, and I do not 
 ### 📊 Clearer Usage and Context
 
 <img width="300" height="350" alt="QQ截图20260622072459 panel" src="https://github.com/user-attachments/assets/34130685-c092-441b-aa65-483baa674402" />
+<img width="736" height="100" alt="QQ截图20260622072624 panel" src="https://github.com/user-attachments/assets/f2d02c5d-b11f-4d7c-bed4-2f59f6c236ff" />
 
 Codex-Pro-Launcher places remaining usage, today's tokens, current conversation tokens, network latency, and context usage where they are easier to scan. It does not store raw conversation content just to show usage statistics.
 
