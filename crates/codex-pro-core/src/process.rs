@@ -87,6 +87,21 @@ pub fn process_ids_for_executable_path(path: &Path) -> Vec<u32> {
     }
 }
 
+/// 这一段判断系统进程表是否确认官方 Codex.exe 已全部退出。
+/// Return whether process enumeration confirms that all official Codex.exe processes are gone.
+pub fn codex_processes_are_absent() -> bool {
+    // 这一段枚举失败时按 Codex 仍可能存在处理，避免因为权限或系统瞬时错误提前关闭 worker。
+    // Treat enumeration failures as possibly still running so permission or transient errors do not stop the worker early.
+    #[cfg(windows)]
+    {
+        windows_count_codex_processes().is_some_and(|count| count == 0)
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
 /// 这一段查找当前正在运行的官方 Codex.exe 路径。
 /// Find the executable path of a currently running official Codex.exe.
 pub fn find_running_codex_executable() -> Option<PathBuf> {
@@ -133,6 +148,14 @@ pub fn is_windowsapps_codex_executable(path: &std::path::Path) -> bool {
     text.contains("\\windowsapps\\openai.codex") && text.ends_with("\\app\\codex.exe")
 }
 
+/// 这一段判断进程镜像名是否是官方 Codex 进程名。
+/// Return whether a process image name is the official Codex process name.
+fn is_codex_process_image_name(exe_file: &str) -> bool {
+    // 这一段只匹配完整镜像名，避免误把 Codex-Pro-Launcher 等工具进程算作官方 Codex。
+    // Match only the full image name so tools such as Codex-Pro-Launcher are not counted as official Codex.
+    exe_file.eq_ignore_ascii_case("Codex.exe")
+}
+
 #[cfg(windows)]
 struct HandleGuard(HANDLE);
 
@@ -145,6 +168,37 @@ impl Drop for HandleGuard {
             let _ = CloseHandle(self.0);
         }
     }
+}
+
+#[cfg(windows)]
+fn windows_count_codex_processes() -> Option<usize> {
+    // 这一段只按进程镜像名枚举，不读取窗口标题或界面文案，适配多语言界面。
+    // Enumerate by process image name only, not by window title or UI text, so localized UI does not matter.
+    let Ok(snapshot) = (unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }) else {
+        return None;
+    };
+    if snapshot.is_invalid() {
+        return None;
+    }
+    let _guard = HandleGuard(snapshot);
+    let mut entry = PROCESSENTRY32W {
+        dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+        ..Default::default()
+    };
+    if unsafe { Process32FirstW(snapshot, &mut entry) }.is_err() {
+        return None;
+    }
+    let mut count = 0_usize;
+    loop {
+        let exe_file = nul_terminated_wide_to_string(&entry.szExeFile);
+        if is_codex_process_image_name(&exe_file) {
+            count += 1;
+        }
+        if unsafe { Process32NextW(snapshot, &mut entry) }.is_err() {
+            break;
+        }
+    }
+    Some(count)
 }
 
 #[cfg(windows)]
@@ -226,7 +280,7 @@ fn windows_find_running_codex_executable() -> Option<PathBuf> {
     }
     loop {
         let exe_file = nul_terminated_wide_to_string(&entry.szExeFile);
-        if exe_file.eq_ignore_ascii_case("Codex.exe")
+        if is_codex_process_image_name(&exe_file)
             && let Some(path) = windows_process_executable_path(entry.th32ProcessID)
             && is_windowsapps_codex_executable(&path)
         {
@@ -271,4 +325,21 @@ fn nul_terminated_wide_to_string(value: &[u16]) -> String {
     OsString::from_wide(&value[..len])
         .to_string_lossy()
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn codex_process_image_name_matches_only_official_exe() {
+        // 这一段确认只匹配官方 Codex 进程名，不把启动器或命令 runner 算进去。
+        // Confirm only the official Codex process name matches, not the launcher or command runner.
+        assert!(is_codex_process_image_name("Codex.exe"));
+        assert!(is_codex_process_image_name("codex.exe"));
+        assert!(!is_codex_process_image_name("Codex-Pro-Launcher.exe"));
+        assert!(!is_codex_process_image_name(
+            "codex-command-runner-0.142.0-alpha.6.exe"
+        ));
+    }
 }

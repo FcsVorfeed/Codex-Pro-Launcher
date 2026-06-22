@@ -29,6 +29,12 @@ const WORKER_RECONNECT_DELAY_MS: u64 = 1_000;
 /// 这一段定义找不到 Codex target 时的退出窗口。
 /// Exit window when no Codex target is available.
 const WORKER_TARGET_MISSING_EXIT_MS: u128 = 120_000;
+/// 这一段定义确认官方 Codex 进程全部退出所需的连续空结果次数。
+/// Consecutive empty process-list results required before treating Codex as exited.
+const WORKER_CODEX_EXIT_EMPTY_STREAK_REQUIRED: u32 = 3;
+/// 这一段定义官方 Codex 进程退出确认的轮询间隔。
+/// Polling interval for confirming that official Codex processes exited.
+const WORKER_CODEX_EXIT_POLL_MS: u64 = 2_000;
 
 /// 这一段描述 worker 启动 payload。
 /// Describes the worker startup payload.
@@ -158,7 +164,25 @@ async fn run_native_bridge_worker(payload: NativeBridgeWorkerPayload) -> anyhow:
     // 这一段 worker 只持有一个 CDP 连接，断线后短暂等待并重新寻找主窗口。
     // The worker owns one CDP connection and reconnects after disconnects.
     let mut missing_target_since: Option<std::time::Instant> = None;
+    let mut missing_codex_process_streak = 0_u32;
     loop {
+        // 这一段优先学习 Codex++ 的进程退出确认：官方 Codex 进程连续消失后才释放 worker。
+        // Prefer the Codex++-style process-exit confirmation: release the worker only after Codex processes stay absent.
+        if update_codex_process_missing_streak(
+            &mut missing_codex_process_streak,
+            codex_pro_core::process::codex_processes_are_absent(),
+        ) {
+            clear_native_bridge_state(payload.debug_port, &payload.native_bridge.bridge_id).await;
+            return Ok(());
+        }
+
+        // 这一段在确认窗口内避免进入长 CDP 等待，让真实退出后的释放接近 4-6 秒。
+        // During the confirmation window, avoid a long CDP wait so release after real exit stays close to 4-6 seconds.
+        if missing_codex_process_streak > 0 {
+            tokio::time::sleep(Duration::from_millis(WORKER_CODEX_EXIT_POLL_MS)).await;
+            continue;
+        }
+
         match run_native_bridge_session(&payload).await {
             Ok(()) => {
                 missing_target_since = None;
@@ -186,6 +210,25 @@ async fn run_native_bridge_worker(payload: NativeBridgeWorkerPayload) -> anyhow:
         }
         tokio::time::sleep(Duration::from_millis(WORKER_RECONNECT_DELAY_MS)).await;
     }
+}
+
+/// 这一段更新官方 Codex 进程缺失计数，并判断是否可以关闭 worker。
+/// Update the official Codex missing-process streak and decide whether the worker can exit.
+fn update_codex_process_missing_streak(
+    missing_streak: &mut u32,
+    codex_processes_absent: bool,
+) -> bool {
+    // 这一段只在系统进程表连续确认没有 Codex.exe 时递增，任何一次发现进程都会复位。
+    // Increment only when the process table confirms no Codex.exe remains; any detected process resets the streak.
+    if codex_processes_absent {
+        *missing_streak = missing_streak.saturating_add(1);
+    } else {
+        *missing_streak = 0;
+    }
+
+    // 这一段沿用 Codex++ 风格的三次确认，避免进程枚举瞬时空结果导致误退出。
+    // Use the Codex++-style three confirmations to avoid exiting on a transient empty process list.
+    *missing_streak >= WORKER_CODEX_EXIT_EMPTY_STREAK_REQUIRED
 }
 
 /// 这一段运行单次 bridge CDP 会话。
@@ -592,5 +635,34 @@ mod tests {
             current
         );
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn codex_process_missing_streak_requires_three_empty_checks() {
+        // 这一段确认前两次空进程表只进入确认窗口，不会立即退出 worker。
+        // Confirm the first two empty process-list checks enter the confirmation window without exiting the worker.
+        let mut streak = 0_u32;
+        assert!(!update_codex_process_missing_streak(&mut streak, true));
+        assert_eq!(streak, 1);
+        assert!(!update_codex_process_missing_streak(&mut streak, true));
+        assert_eq!(streak, 2);
+
+        // 这一段确认第三次连续空结果才允许退出，和 Codex++ 的三次确认保持一致。
+        // Confirm the third consecutive empty result allows exit, matching Codex++'s three confirmations.
+        assert!(update_codex_process_missing_streak(&mut streak, true));
+        assert_eq!(streak, 3);
+    }
+
+    #[test]
+    fn codex_process_missing_streak_resets_when_process_returns() {
+        // 这一段确认任何一次发现 Codex 进程都会复位，避免短暂枚举空结果导致功能断开。
+        // Confirm any detected Codex process resets the streak so transient empty results do not disconnect features.
+        let mut streak = 0_u32;
+        assert!(!update_codex_process_missing_streak(&mut streak, true));
+        assert!(!update_codex_process_missing_streak(&mut streak, true));
+        assert!(!update_codex_process_missing_streak(&mut streak, false));
+        assert_eq!(streak, 0);
+        assert!(!update_codex_process_missing_streak(&mut streak, true));
+        assert_eq!(streak, 1);
     }
 }
