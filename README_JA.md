@@ -30,17 +30,13 @@ https://github.com/user-attachments/assets/ea5e3733-dc0d-4ed2-8222-363b3f830d75
 
 ## ⚡ クイックスタート
 
-[GitHub Releases](https://github.com/FcsVorfeed/Codex-Pro-Launcher/releases) から最新の Windows リリースファイルをダウンロードします。
+1. [GitHub Releases](https://github.com/FcsVorfeed/Codex-Pro-Launcher/releases) から最新バージョンをダウンロードします。
+2. 展開して、`Codex-Pro-Launcher.exe` をダブルクリックします。
+3. 完了です。
 
-- Windows: `Codex-Pro-Launcher-vX.Y.Z-windows.zip`
+起動前に公式 Codex クライアントを閉じてください。その後は Codex-Pro-Launcher から Codex を起動します。
 
-起動する前に、公式 Codex Desktop をインストールしてサインインしておいてください。
-
-ZIP を展開し、その中の `Codex-Pro-Launcher.exe` をダブルクリックします。Codex-Pro-Launcher は公式 Codex App を起動または再利用し、前面に表示して、CDP 経由で拡張モジュールを注入します。
-
-素の Codex 体験に戻したい場合は、公式 Codex App を直接起動してください。Codex-Pro-Launcher は Codex を置き換えず、Codex のインストールファイルも変更しません。
-
-ローカル開発、チェック、リリースビルドのコマンドは、下の[開発](#開発)を参照してください。
+通常の Codex 体験に戻したい場合は、公式 Codex クライアントを直接起動してください。
 
 ## 💬 コミュニティ
 

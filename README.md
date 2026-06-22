@@ -30,17 +30,13 @@ https://github.com/user-attachments/assets/ea5e3733-dc0d-4ed2-8222-363b3f830d75
 
 ## ⚡ Quick Start
 
-Download the latest Windows release asset from [GitHub Releases](https://github.com/FcsVorfeed/Codex-Pro-Launcher/releases):
+1. Download the latest version from [GitHub Releases](https://github.com/FcsVorfeed/Codex-Pro-Launcher/releases).
+2. Extract it, then double-click `Codex-Pro-Launcher.exe`.
+3. That's all.
 
-- Windows: `Codex-Pro-Launcher-vX.Y.Z-windows.zip`
+Before launching, close the official Codex client. Start Codex through Codex-Pro-Launcher after that.
 
-Before launching, install and sign in to the official Codex Desktop app.
-
-Extract the ZIP, then double-click `Codex-Pro-Launcher.exe`. Codex-Pro-Launcher will start or reuse the official Codex App, bring it to the front, and inject the enhancement modules through CDP.
-
-If you want the stock Codex experience, launch the official Codex App directly. Codex-Pro-Launcher does not replace Codex and does not modify the Codex installation files.
-
-For local development, checking, and release build commands, see [Development](#development).
+If you want the stock Codex experience, launch the official Codex client directly.
 
 ## 💬 Community
 
