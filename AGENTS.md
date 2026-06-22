@@ -58,28 +58,10 @@ The test: Every changed line should trace directly to the user's request.
 - 使用GIT进行修改校验
 
 ## GIT操作说明
-- 提交推送前需要用子代理进行Code Review（如果你是子代理则无视这条）
-  - 给Code Review的子代理的说明最后添加约束提示词：
-    - 你是一个仅做只读操作的Code Review子代理
-    - 禁止开新子代理
-    - 禁止开新子线程
-    - 禁止修改
-    - 禁止提交
-    - 同时对`private`目录使用SVN进行CodeReview
-  - CodeReview时子代理可能因为网络问题卡顿，尽可能不要轻易跳过
-  - fork_context 时不要指定角色
 - GIT默认使用提升权限进行操作
 - GIT提交需填写英文说明
 
 ## SVN操作说明
-- 提交前需要用子代理进行Code Review（如果你是子代理则无视这条）
-  - 给Code Review的子代理的说明最后添加约束提示词：
-    - 你是一个仅做只读操作的Code Review子代理
-    - 禁止开新子代理
-    - 禁止开新子线程
-    - 禁止修改
-    - 禁止提交
-  - CodeReview时子代理可能因为网络问题卡顿，尽可能不要轻易跳过
 - SVN默认使用提升权限进行操作
 - SVN提交需填写中文说明
 - SVN 提交中文说明时禁止直接使用 `svn commit -m "中文"`；
@@ -90,7 +72,19 @@ $logFile = "private\tmp\svn-commit-message.txt"
 svn commit <paths> --encoding UTF-8 -F $logFile
 ```
 
-## CodeReview子代理
+## CodeReview
+- 使用子代理进行Code Review（如果你是子代理则无视这条）
+  - 给Code Review的子代理的说明最后添加约束提示词：
+  - 你是一个仅做只读操作的Code Review子代理
+  - 禁止开新子代理
+  - 禁止开新子线程
+  - 禁止修改
+  - 禁止提交
+  - 同时对`private`目录使用SVN进行CodeReview
+- CodeReview时子代理可能因为网络问题卡顿，尽可能不要轻易跳过
+- fork_context 时不要指定角色
+
+## 子代理
 - 如果你是一个CodeReview子代理:
   - 禁止开新子代理
   - 禁止开新子线程
