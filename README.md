@@ -26,6 +26,8 @@ Codex-Pro-Launcher is an external enhancement launcher for Codex App. It does no
 
 Its goal is not to replace Codex App or modify the original Codex App installation files. It keeps the official client experience intact while filling in high-frequency workflow gaps that interrupt daily development.
 
+<img width="2160" height="1220" alt="QQ截图20260622080734" src="https://github.com/user-attachments/assets/368b2de2-9e28-475c-8b1f-53b556624eba" />
+
 ## ⚡ Quick Start
 
 Download the latest Windows release asset from [GitHub Releases](https://github.com/FcsVorfeed/Codex-Pro-Launcher/releases):
@@ -80,29 +82,43 @@ The starting point is simple: Codex is already part of daily work, and I do not 
 
 ### 📊 Clearer Usage and Context
 
+<img width="300" height="350" alt="QQ截图20260622072459 panel" src="https://github.com/user-attachments/assets/34130685-c092-441b-aa65-483baa674402" />
+
 Codex-Pro-Launcher places remaining usage, today's tokens, current conversation tokens, network latency, and context usage where they are easier to scan. It does not store raw conversation content just to show usage statistics.
 
 ### 🔍 Smoother Change Review
+
+<img width="1025" height="439" alt="QQ截图20260622081950 rounded" src="https://github.com/user-attachments/assets/c0a749ba-6611-440e-a4c1-f17e2c267741" />
 
 Hover over Codex's native change summaries to see the changed file list. You can open a single-file preview, jump to a specific hunk, or send the file pair to a local external diff tool.
 
 ### 🌳 Less Noisy File Tree
 
+<img width="248" height="558" alt="QQ截图20260622082742 rounded" src="https://github.com/user-attachments/assets/886449fb-4913-4c88-9a30-4f019f414ade" />
+
 Hide build output, cache folders, and other noisy entries by rule. When the right-side preview changes, the file tree can also reveal the folder that contains the active file.
 
 ### 🖱️ Faster Mouse Gestures
+
+<img width="723" height="631" alt="2026622-82846 rounded" src="https://github.com/user-attachments/assets/f75f9033-8a2e-471c-9ec6-7ef5728938ef" />
 
 Codex-Pro-Launcher can bind common actions to controlled mouse gestures and shortcut requests, reducing repeated movement between windows, panels, and review surfaces.
 
 ### 🧲 More Natural Drag and Drop
 
+<img width="1644" height="762" alt="PixPin_2026-06-22_08-34-54 rounded" src="https://github.com/user-attachments/assets/29b69a26-55aa-455f-80c8-e69df0a77b9d" />
+
 Right-side file tabs and left-side conversation rows can be dragged directly into the chat composer. Codex-Pro-Launcher reuses Codex's native attachment path where possible instead of simulating files through fragile text insertion.
 
 ### 🖼️ More Immersive Background Carousel
 
+<img width="2160" height="1220" alt="QQ截图20260622083726 rounded" src="https://github.com/user-attachments/assets/84b3b967-9ccb-4796-a278-60c319237e74" />
+
 Background images support multiple entries, random playback, opacity, size, and position controls. Switching uses a two-layer fade transition, and DOM nodes and timers are cleaned up when disabled or reinjected.
 
 ### ☁️ More Controlled Conversation Sync
+
+<img width="1116" height="1164" alt="QQ截图20260622083942 rounded" src="https://github.com/user-attachments/assets/bdb9f829-aa0c-4db9-bc7a-9dd686372af2" />
 
 Conversation archive sync exports, encrypts, packages, and syncs conversations according to the user's configuration while keeping local preview support. The public repository keeps the client implementation and public documentation.
 
