@@ -817,6 +817,12 @@ assert(
   "settings-menu openDialog must route stale activeSection through fallback logic",
 );
 assert(
+  viewSource.includes("codex-pro-settings-update-tooltip") &&
+    viewSource.includes("settings.updateCheck.hoverAvailable") &&
+    viewSource.includes("bindUpdateTooltip(trigger, signal)"),
+  "settings-menu view must show a custom update tooltip on trigger hover",
+);
+assert(
   viewSource.includes('data-codex-pro-disabled="true"') &&
     viewSource.includes(".codex-pro-settings-switch input:disabled + .codex-pro-settings-switch-track"),
   "settings-menu view must visibly dim row copy and disabled switch tracks",

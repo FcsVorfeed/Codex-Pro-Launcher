@@ -7,6 +7,7 @@
   const rootId = "codex-pro-settings-root";
   const styleId = "codex-pro-settings-style";
   const triggerHostId = "codex-pro-settings-trigger-host";
+  const updateTooltipId = "codex-pro-settings-update-tooltip";
   const dialogSizeStorageKey = "codex-pro-settings-dialog-size";
   const dialogSizeDefaults = Object.freeze({ width: 700, height: 640 });
   const dialogSizeMinimums = Object.freeze({ width: 560, height: 420 });
@@ -16,6 +17,7 @@
   const dialogCompactViewportMaxWidth = 680;
   const nativeMenuEntryAttribute = "data-codex-pro-native-settings-entry";
   const nativeMenuEntrySelector = `[${nativeMenuEntryAttribute}]`;
+  let updateTooltipState = Object.freeze({ latestVersion: "", updateAvailable: false });
 
   function getSettingsTrigger() {
     // 这一段统一查找当前设置入口，兼容顶部栏挂载和固定定位兜底两种模式。
@@ -29,14 +31,111 @@
     // 这一段只负责把更新状态渲染成设置入口角标，不承担联网检查或版本比较。
     // Render update state as a settings-entry badge only; network checks and version comparison live elsewhere.
     const trigger = getSettingsTrigger();
-    if (!trigger) return;
     const updateAvailable = state?.updateAvailable === true;
-    trigger.dataset.codexProUpdateAvailable = String(updateAvailable);
+    const latestVersion = typeof state?.latestVersion === "string" ? state.latestVersion.trim() : "";
+    updateTooltipState = Object.freeze({ latestVersion, updateAvailable });
     const title = updateAvailable
-      ? i18n.t("settings.updateCheck.triggerAvailable", { version: state.latestVersion || "" })
+      ? i18n.t("settings.updateCheck.triggerAvailable", { version: latestVersion })
       : i18n.t("settings.shell.trigger");
-    trigger.setAttribute("aria-label", title);
-    trigger.setAttribute("title", title);
+    if (trigger) {
+      trigger.dataset.codexProUpdateAvailable = String(updateAvailable);
+      trigger.setAttribute("aria-label", title);
+      if (updateAvailable) {
+        trigger.removeAttribute("title");
+      } else {
+        trigger.setAttribute("title", title);
+      }
+    }
+    const updateSectionButton = document.querySelector(`[data-codex-pro-settings-section-button="update-check"]`);
+    if (updateSectionButton) {
+      updateSectionButton.dataset.codexProUpdateAvailable = String(updateAvailable);
+    }
+    if (!updateAvailable) removeUpdateTooltip();
+  }
+
+  function getUpdateTooltipText() {
+    // 这一段生成右上角更新提示浮层文案，版本号来自受控更新检查状态。
+    // Build the top-right update tooltip copy from the controlled update-check state.
+    if (!updateTooltipState.updateAvailable) return "";
+    return i18n.t("settings.updateCheck.hoverAvailable", {
+      version: updateTooltipState.latestVersion || i18n.t("settings.updateCheck.versionUnknown"),
+    });
+  }
+
+  function removeUpdateTooltip() {
+    // 这一段移除自定义提示浮层，避免原生 title 和自绘 tooltip 同时残留。
+    // Remove the custom tooltip so native title and custom tooltip never linger together.
+    document.getElementById(updateTooltipId)?.remove();
+  }
+
+  function ensureUpdateTooltip() {
+    // 这一段创建一次性 tooltip DOM，跟随鼠标定位，不进入设置弹窗布局流。
+    // Create a tooltip DOM node positioned by the mouse without entering the settings dialog layout.
+    let tooltip = document.getElementById(updateTooltipId);
+    if (!tooltip) {
+      tooltip = document.createElement("div");
+      tooltip.id = updateTooltipId;
+      tooltip.className = "codex-pro-settings-update-tooltip";
+      tooltip.setAttribute("role", "tooltip");
+      document.body.append(tooltip);
+    }
+    return tooltip;
+  }
+
+  function positionUpdateTooltip(tooltip, clientX, clientY) {
+    // 这一段优先把 tooltip 放到鼠标左侧，左侧空间不足时再翻到右侧。
+    // Prefer placing the tooltip to the left of the mouse, flipping right only when needed.
+    const margin = 8;
+    const offset = 12;
+    const rect = tooltip.getBoundingClientRect();
+    let left = clientX - rect.width - offset;
+    let top = clientY + offset;
+    if (left < margin) {
+      left = clientX + offset;
+    }
+    if (left + rect.width + margin > window.innerWidth) {
+      left = window.innerWidth - rect.width - margin;
+    }
+    if (top + rect.height + margin > window.innerHeight) {
+      top = clientY - rect.height - offset;
+    }
+    tooltip.style.left = `${Math.max(margin, left)}px`;
+    tooltip.style.top = `${Math.max(margin, top)}px`;
+  }
+
+  function showUpdateTooltip(event, trigger) {
+    // 这一段只在确实有更新时显示提示，普通设置按钮 hover 不显示额外浮层。
+    // Show the tooltip only when an update is available; normal settings hover stays quiet.
+    const text = getUpdateTooltipText();
+    if (!text) {
+      removeUpdateTooltip();
+      return;
+    }
+    const tooltip = ensureUpdateTooltip();
+    tooltip.textContent = text;
+    const rect = trigger.getBoundingClientRect();
+    positionUpdateTooltip(
+      tooltip,
+      Number.isFinite(event?.clientX) ? event.clientX : rect.right,
+      Number.isFinite(event?.clientY) ? event.clientY : rect.bottom,
+    );
+  }
+
+  function bindUpdateTooltip(trigger, signal) {
+    // 这一段绑定右上角更新提示浮层生命周期，随设置菜单重建自动清理。
+    // Bind the top-right update tooltip lifecycle so it is cleaned up with settings menu rebuilds.
+    if (!trigger) return;
+    trigger.addEventListener("mouseenter", (event) => showUpdateTooltip(event, trigger), { signal });
+    trigger.addEventListener("mousemove", (event) => {
+      const tooltip = document.getElementById(updateTooltipId);
+      if (!tooltip) return;
+      positionUpdateTooltip(tooltip, event.clientX, event.clientY);
+    }, { signal });
+    trigger.addEventListener("mouseleave", removeUpdateTooltip, { signal });
+    trigger.addEventListener("focus", (event) => showUpdateTooltip(event, trigger), { signal });
+    trigger.addEventListener("blur", removeUpdateTooltip, { signal });
+    trigger.addEventListener("click", removeUpdateTooltip, { signal });
+    signal?.addEventListener("abort", removeUpdateTooltip, { once: true });
   }
 
   function getElementRect(element) {
@@ -290,16 +389,30 @@
         #${rootId} .codex-pro-settings-trigger[data-codex-pro-update-available="true"]::after,
         #${triggerHostId} .codex-pro-settings-trigger[data-codex-pro-update-available="true"]::after {
           position: absolute;
-          top: 4px;
-          right: 4px;
-          width: 6px;
-          height: 6px;
+          top: 5px;
+          right: 5px;
+          width: 5px;
+          height: 5px;
           box-sizing: border-box;
-          border: 1px solid var(--color-token-dropdown-background, rgba(45, 45, 45, .98));
-          border-radius: 999px;
-          background: color-mix(in srgb, var(--color-token-description-foreground, CanvasText) 72%, transparent);
+          border-radius: 50%;
+          background: rgba(150, 150, 150, .78);
           content: "";
           pointer-events: none;
+        }
+        .codex-pro-settings-update-tooltip {
+          position: fixed;
+          z-index: 2147483647;
+          max-width: min(260px, calc(100vw - 16px));
+          box-sizing: border-box;
+          padding: 6px 8px;
+          border: 1px solid var(--color-token-border, rgba(255, 255, 255, .12));
+          border-radius: 6px;
+          background: var(--color-token-dropdown-background, rgba(36, 36, 36, .98));
+          color: var(--color-token-foreground, rgba(245, 245, 245, .92));
+          font: 12px/1.35 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          white-space: nowrap;
+          pointer-events: none;
+          box-shadow: 0 8px 24px rgba(0, 0, 0, .26);
         }
         #${rootId} .codex-pro-settings-backdrop {
           position: fixed;
@@ -401,6 +514,20 @@
           background: #0e9eea;
           content: "";
         }
+        #${rootId} .codex-pro-settings-section-button[data-codex-pro-update-available="true"]::before {
+          position: absolute;
+          right: 10px;
+          width: 7px;
+          height: 7px;
+          box-sizing: border-box;
+          border-radius: 50%;
+          background: #47c7ff;
+          box-shadow:
+            0 0 0 2px color-mix(in srgb, var(--color-token-dropdown-background, rgba(45, 45, 45, .98)) 92%, transparent),
+            0 0 10px color-mix(in srgb, #47c7ff 45%, transparent);
+          content: "";
+          pointer-events: none;
+        }
         #${rootId} .codex-pro-settings-section-button > span {
           min-width: 0;
           overflow: hidden;
@@ -412,6 +539,17 @@
           height: 16px;
           flex: 0 0 auto;
           color: currentColor;
+        }
+        #${rootId} [data-codex-pro-update-status][data-codex-pro-update-status-kind="available"] {
+          color: #47c7ff;
+          font-weight: 650;
+        }
+        #${rootId} [data-codex-pro-update-status][data-codex-pro-update-status-kind="checking"] {
+          color: color-mix(in srgb, #47c7ff 78%, var(--color-token-foreground, CanvasText));
+        }
+        #${rootId} [data-codex-pro-update-status][data-codex-pro-update-status-kind="failed"],
+        #${rootId} [data-codex-pro-update-status][data-codex-pro-update-status-kind="unsupported"] {
+          color: #f28b82;
         }
         #${rootId} .codex-pro-settings-content {
           min-width: 0;
@@ -898,6 +1036,7 @@
     document.getElementById(rootId)?.remove();
     document.getElementById(styleId)?.remove();
     document.getElementById(triggerHostId)?.remove();
+    removeUpdateTooltip();
     for (const entry of document.querySelectorAll(nativeMenuEntrySelector)) {
       entry.remove();
     }
@@ -1195,6 +1334,7 @@
       if (scheduleTriggerRemount.frame) cancelAnimationFrame(scheduleTriggerRemount.frame);
     }, { once: true });
     trigger.addEventListener("click", openDialog, { signal });
+    bindUpdateTooltip(trigger, signal);
     dialogResizeHandle.addEventListener("pointerdown", startDialogResize, { signal });
     window.addEventListener("resize", clampOpenDialogToViewport, { signal });
     for (const button of sectionButtons) {

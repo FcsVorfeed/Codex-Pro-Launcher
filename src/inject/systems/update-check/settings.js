@@ -16,6 +16,17 @@
     return "settings.updateCheck.status.notChecked";
   }
 
+  function statusKind(state) {
+    // 这一段把内部状态映射为样式状态，避免用文案内容判断颜色。
+    // Map internal state to style states without relying on localized status copy.
+    if (state?.checking) return "checking";
+    if (state?.error === "launcherUnsupported") return "unsupported";
+    if (state?.error) return "failed";
+    if (state?.updateAvailable) return "available";
+    if (state?.checkedAt) return "latest";
+    return "notChecked";
+  }
+
   function versionLabel(value) {
     // 这一段把空版本号转成统一占位，避免 DOM 中出现空白状态。
     // Turn an empty version into a consistent placeholder so the DOM does not show a blank state.
@@ -95,6 +106,7 @@
         currentVersion.textContent = versionLabel(state.currentVersion || runtime.version);
         latestVersion.textContent = versionLabel(state.latestVersion);
         status.textContent = i18n.t(statusMessageKey(state));
+        status.dataset.codexProUpdateStatusKind = statusKind(state);
         checkedAt.textContent = renderCheckedAt(state);
         checkButton.disabled = state.checking === true;
         openButton.disabled = !(state.releaseUrl || state.assetUrl);
