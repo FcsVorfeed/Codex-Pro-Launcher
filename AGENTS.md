@@ -58,10 +58,12 @@ The test: Every changed line should trace directly to the user's request.
 - 使用GIT进行修改校验
 
 ## GIT操作说明
+- 提交推送前需要用子代理进行Code Review
 - GIT默认使用提升权限进行操作
 - GIT提交需填写英文说明
 
 ## SVN操作说明
+- 提交推送前需要用子代理进行Code Review
 - SVN默认使用提升权限进行操作
 - SVN提交需填写中文说明
 - SVN 提交中文说明时禁止直接使用 `svn commit -m "中文"`；
