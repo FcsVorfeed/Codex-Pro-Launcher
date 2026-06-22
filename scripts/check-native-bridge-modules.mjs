@@ -19,6 +19,7 @@ const buildRustScriptPath = path.join(rootDir, "scripts", "build-rust-single-exe
 const injectDevScriptPath = path.join(rootDir, "scripts", "inject-dev.ps1");
 const releaseVersionScriptPath = path.join(rootDir, "scripts", "prepare-release-version.mjs");
 const rustArgsPath = path.join(rootDir, "crates", "codex-pro-core", "src", "args.rs");
+const rustAssetsPath = path.join(rootDir, "crates", "codex-pro-core", "src", "assets.rs");
 const rustDiagnosticsPath = path.join(rootDir, "crates", "codex-pro-core", "src", "diagnostics.rs");
 const rustInjectionPath = path.join(rootDir, "crates", "codex-pro-core", "src", "injection.rs");
 const rustWorkerPath = path.join(rootDir, "crates", "codex-pro-bridge", "src", "worker.rs");
@@ -90,6 +91,7 @@ await Promise.all([
   assertFileExists(injectDevScriptPath),
   assertFileExists(releaseVersionScriptPath),
   assertFileExists(rustArgsPath),
+  assertFileExists(rustAssetsPath),
   assertFileExists(rustDiagnosticsPath),
   assertFileExists(rustInjectionPath),
   assertFileExists(rustWorkerPath),
@@ -116,6 +118,7 @@ const [
   injectDevScriptSource,
   releaseVersionScriptSource,
   rustArgsSource,
+  rustAssetsSource,
   rustDiagnosticsSource,
   rustInjectionSource,
   rustWorkerSource,
@@ -139,6 +142,7 @@ const [
   readFile(injectDevScriptPath, "utf8"),
   readFile(releaseVersionScriptPath, "utf8"),
   readFile(rustArgsPath, "utf8"),
+  readFile(rustAssetsPath, "utf8"),
   readFile(rustDiagnosticsPath, "utf8"),
   readFile(rustInjectionPath, "utf8"),
   readFile(rustWorkerPath, "utf8"),
@@ -179,6 +183,8 @@ assertIncludes(rustUpdateCheckSource, "pub fn parse_update_check_request", "Rust
 assertIncludes(rustUpdateCheckSource, "pub async fn run_update_check_request", "Rust update-check runner export");
 assertIncludes(rustUpdateCheckSource, "latest.json", "Rust update-check uses release index");
 assertIncludes(rustUpdateCheckSource, "parser_rejects_page_supplied_url", "Rust update-check rejects page URL contract");
+assertIncludes(rustAssetsSource, "src/inject/systems/update-check/settings.js", "Rust core assets should embed update-check settings");
+assertIncludes(rustAssetsSource, "src/inject/systems/update-check/index.js", "Rust core assets should embed update-check runtime");
 assertIncludes(nativeBridgeCoreSource, 'detail.type === "conversation-archive-progress"', "conversation archive progress event listener");
 assertIncludes(nativeBridgeCoreSource, "resetTimeout();", "conversation archive idle timeout refresh");
 assertIncludes(conversationArchiveSource, 'join("pending-device-deletes.json")', "Rust conversation archive pending device delete state path");

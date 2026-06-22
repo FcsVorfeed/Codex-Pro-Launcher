@@ -60,6 +60,9 @@ pub fn module_source(path: &str) -> Option<&'static str> {
         "src/inject/systems/native-thread-drag-to-chat/settings.js" => {
             include_str!("../../../src/inject/systems/native-thread-drag-to-chat/settings.js")
         }
+        "src/inject/systems/update-check/settings.js" => {
+            include_str!("../../../src/inject/systems/update-check/settings.js")
+        }
         "src/inject/systems/legacy-cleanup/index.js" => {
             include_str!("../../../src/inject/systems/legacy-cleanup/index.js")
         }
@@ -134,6 +137,9 @@ pub fn module_source(path: &str) -> Option<&'static str> {
         }
         "src/inject/systems/mouse-gestures/index.js" => {
             include_str!("../../../src/inject/systems/mouse-gestures/index.js")
+        }
+        "src/inject/systems/update-check/index.js" => {
+            include_str!("../../../src/inject/systems/update-check/index.js")
         }
         "src/inject/index.js" => include_str!("../../../src/inject/index.js"),
         _ => return None,
