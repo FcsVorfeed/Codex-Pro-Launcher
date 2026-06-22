@@ -51,6 +51,7 @@ $outputDir = Join-Path $repoRoot "private\build\rust"
 $releaseVersion = Get-WorkspacePackageVersion
 $outputExe = Join-Path $outputDir "Codex-Pro-Launcher.exe"
 $versionedOutputExe = Join-Path $outputDir "Codex-Pro-Launcher-v$releaseVersion.exe"
+$versionedOutputZip = Join-Path $outputDir "Codex-Pro-Launcher-v$releaseVersion-windows.zip"
 $targetDir = Join-Path $repoRoot "private\target"
 $releaseConfigEnvName = "CODEX_PRO_RELEASE_CONFIG_JSON"
 
@@ -202,11 +203,15 @@ if (-not $SkipTests) {
 cargo build --target-dir $targetDir --release --bin Codex-Pro-Launcher
 Assert-LastExitCode "cargo build --target-dir $targetDir --release --bin Codex-Pro-Launcher"
 
-# 这一段复制最终 exe 到发布目录。
-# Copy the final executable to the release directory.
+# 这一段复制最终 exe 到发布目录，并生成 GitHub Release 主下载 zip。
+# Copy the final executable to the release directory and create the primary GitHub Release zip.
 New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
 Copy-Item -Force (Join-Path $targetDir "release\Codex-Pro-Launcher.exe") $outputExe
 Copy-Item -Force $outputExe $versionedOutputExe
+if (Test-Path -LiteralPath $versionedOutputZip) {
+  Remove-Item -LiteralPath $versionedOutputZip -Force
+}
+Compress-Archive -LiteralPath $outputExe -DestinationPath $versionedOutputZip
 
 # 这一段输出体积并提示验收风险。
 # Print size and warn when it exceeds the acceptance target.
@@ -214,6 +219,7 @@ $sizeBytes = (Get-Item $outputExe).Length
 $sizeMb = [Math]::Round($sizeBytes / 1MB, 2)
 Write-Host "Rust launcher: $outputExe"
 Write-Host "Release asset: $versionedOutputExe"
+Write-Host "Release ZIP asset: $versionedOutputZip"
 Write-Host "Version: $releaseVersion"
 Write-Host "Size: $sizeMb MB"
 if ($sizeBytes -gt (15MB)) {
@@ -226,5 +232,6 @@ if ($Desktop) {
   $desktop = [Environment]::GetFolderPath("Desktop")
   Copy-Item -Force $outputExe (Join-Path $desktop "Codex-Pro-Launcher.exe")
   Copy-Item -Force $versionedOutputExe (Join-Path $desktop "Codex-Pro-Launcher-v$releaseVersion.exe")
+  Copy-Item -Force $versionedOutputZip (Join-Path $desktop "Codex-Pro-Launcher-v$releaseVersion-windows.zip")
   Write-Host "Copied to Desktop."
 }

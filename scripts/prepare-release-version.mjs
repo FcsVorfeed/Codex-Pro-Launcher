@@ -294,12 +294,13 @@ async function writeVersionState(sources) {
 }
 
 // 这一段打印发布后要使用的 tag 和带版本号产物路径，方便截图核对。
-// Print the tag and versioned asset path operators should use after the release build.
+// Print the tag and versioned asset paths operators should use after the release build.
 function printReleaseSummary(currentVersion, targetVersion, dryRun) {
   const prefix = dryRun ? "Would update" : "Updated";
   console.log(`${prefix} release version: ${currentVersion} -> ${targetVersion}`);
   console.log(`Git tag: v${targetVersion}`);
-  console.log(`Release asset: private/build/rust/Codex-Pro-Launcher-v${targetVersion}.exe`);
+  console.log(`Primary release asset: private/build/rust/Codex-Pro-Launcher-v${targetVersion}-windows.zip`);
+  console.log(`Fallback exe asset: private/build/rust/Codex-Pro-Launcher-v${targetVersion}.exe`);
 }
 
 try {
