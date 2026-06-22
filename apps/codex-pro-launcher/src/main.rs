@@ -175,6 +175,7 @@ async fn run_launcher(raw_args: Vec<String>) -> Result<()> {
             options.debug_port,
             options.timeout_ms,
             config,
+            &options.disabled_systems,
             options.dev_runtime,
             source_root.as_deref(),
         )
@@ -495,8 +496,8 @@ async fn find_fresh_native_bridge_debug_port_hint() -> Result<Option<u16>> {
     };
     let mut best: Option<(u16, u128)> = None;
 
-    // 这一段逐个解析状态文件，只保留协议匹配且心跳新鲜的 Rust bridge。
-    // Parse state files one by one and keep only fresh Rust bridge states with a matching protocol.
+    // 这一段逐个解析状态文件，只把新鲜 bridge 当作端口线索；协议是否过期由后续 runtime probe 决定是否重注入。
+    // Parse state files one by one and use any fresh bridge as a port hint; the later runtime probe decides whether a stale protocol needs reinjection.
     while let Some(entry) = entries.next_entry().await? {
         let Some(file_name) = entry.file_name().to_str().map(str::to_owned) else {
             continue;
@@ -511,7 +512,6 @@ async fn find_fresh_native_bridge_debug_port_hint() -> Result<Option<u16>> {
             continue;
         };
         if state.debug_port != debug_port
-            || state.native_bridge.protocol_version != NATIVE_BRIDGE_PROTOCOL_VERSION
             || !heartbeat_is_fresh(&state, NATIVE_BRIDGE_PORT_HINT_MAX_AGE_MS)
         {
             continue;

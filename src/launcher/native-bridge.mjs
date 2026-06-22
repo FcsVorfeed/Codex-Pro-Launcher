@@ -9,10 +9,11 @@ import {
   parseNativeBridgeRequest,
 } from "./native-bridge/router.mjs";
 import { runNativeBridgeWorkerCleanup } from "./native-bridge/worker-cleanup.mjs";
+import { startPetEventSoundOverlayTargetWatcher } from "./pet-event-sound-overlay-injection.mjs";
 import { launcherPath, rootDir } from "./paths.mjs";
 
 const nativeBridgeBindingName = "__codexProNativeBridge";
-const nativeBridgeProtocolVersion = 70;
+const nativeBridgeProtocolVersion = 71;
 const nativeBridgeResponseEventName = "codex-pro:native-bridge-response";
 const nativeBridgeMaxPayloadLength = 24_000;
 const nativeBridgeHeartbeatMs = 2000;
@@ -38,6 +39,21 @@ function nativeBridgeStatePath(debugPort) {
   // 这一段把调试端口映射到固定状态文件，用于复用同一 Codex 会话的后台桥。
   // Map the debugging port to a stable state file so one Codex session can reuse its background bridge.
   return path.join(nativeBridgeStateDir, `native-bridge-${debugPort}.json`);
+}
+
+function normalizeDisabledSystems(value) {
+  // 这一段把 worker 载荷里的禁用系统列表规整成稳定数组，避免复用错误 watcher 配置。
+  // Normalize disabled-system lists from worker payloads so watcher reuse cannot keep a stale configuration.
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(value.map((item) => String(item || "").trim().toLowerCase()).filter(Boolean))).sort();
+}
+
+function areDisabledSystemsEqual(left, right) {
+  // 这一段比较禁用系统列表，决定已有后台桥是否还能复用。
+  // Compare disabled-system lists to decide whether an existing background bridge is still reusable.
+  const leftSystems = normalizeDisabledSystems(left);
+  const rightSystems = normalizeDisabledSystems(right);
+  return leftSystems.length === rightSystems.length && leftSystems.every((item, index) => item === rightSystems[index]);
 }
 
 function isNativeBridgeConfig(value) {
@@ -73,6 +89,7 @@ async function readNativeBridgeState(debugPort) {
     const pid = Number(state?.pid);
     if (!Number.isInteger(pid) || !isNativeBridgeConfig(state?.nativeBridge)) return null;
     return {
+      disabledSystems: normalizeDisabledSystems(state?.disabledSystems),
       nativeBridge: state.nativeBridge,
       pid,
       startedAt: typeof state.startedAt === "string" ? state.startedAt : "",
@@ -146,6 +163,7 @@ async function writeNativeBridgeState(debugPort, nativeBridge, pid, state = {}) 
     nativeBridgeStatePath(debugPort),
     JSON.stringify({
       debugPort,
+      disabledSystems: normalizeDisabledSystems(state.disabledSystems),
       nativeBridge,
       pid,
       startedAt: state.startedAt || new Date().toISOString(),
@@ -155,21 +173,26 @@ async function writeNativeBridgeState(debugPort, nativeBridge, pid, state = {}) 
   );
 }
 
-async function writeNativeBridgeWorkerHeartbeat(debugPort, nativeBridge) {
+async function writeNativeBridgeWorkerHeartbeat(debugPort, nativeBridge, disabledSystems) {
   // 这一段由 worker 会话写入状态心跳，只有真正接上 CDP 后才允许后续注入复用。
   // Let the worker session write a state heartbeat so later injections reuse only a real CDP-backed worker.
   const state = await readNativeBridgeState(debugPort);
   await writeNativeBridgeState(debugPort, nativeBridge, process.pid, {
+    disabledSystems: state?.disabledSystems || disabledSystems,
     startedAt: state?.startedAt || new Date().toISOString(),
     workerHeartbeatAt: new Date().toISOString(),
   });
 }
 
-export async function getReusableNativeBridge(debugPort) {
+export async function getReusableNativeBridge(debugPort, disabledSystems = []) {
   // 这一段复用仍存活的后台桥；发现陈旧记录时顺手删除，避免状态文件残留。
   // Reuse a still-alive background bridge; remove stale records to avoid state-file residue.
   const state = await readNativeBridgeState(debugPort);
   if (!state) return null;
+  if (!areDisabledSystemsEqual(state.disabledSystems, disabledSystems)) {
+    await clearNativeBridgeState(debugPort, state.nativeBridge.bridgeId);
+    return null;
+  }
   if (
     isProcessAlive(state.pid) &&
     (isNativeBridgeStateHeartbeatFresh(state) || await isNativeBridgePageHeartbeatFresh(debugPort, state.nativeBridge))
@@ -219,7 +242,10 @@ export function decodeNativeBridgeWorkerPayload(value) {
     if (!isNativeBridgeConfig(payload?.nativeBridge)) {
       throw new Error("missing native bridge config");
     }
-    return payload;
+    return {
+      ...payload,
+      disabledSystems: normalizeDisabledSystems(payload.disabledSystems),
+    };
   } catch (error) {
     throw new Error(`Invalid native bridge worker payload: ${error?.message || error}`);
   }
@@ -307,13 +333,21 @@ function startNativeBridgeWorkerDetached(payload) {
   return child.pid || null;
 }
 
-export async function startNativeBridgeWorker(debugPort, timeoutMs, nativeBridge) {
+export async function startNativeBridgeWorker(debugPort, timeoutMs, nativeBridge, disabledSystems = []) {
   // 这一段启动隐藏后台 worker，并记录 pid；worker 持有 CDP 连接，CMD 不需要继续停留。
   // Start a hidden background worker and record its pid; the worker owns CDP so CMD can exit.
-  const payload = encodeNativeBridgeWorkerPayload({ debugPort, nativeBridge, timeoutMs });
+  const normalizedDisabledSystems = normalizeDisabledSystems(disabledSystems);
+  const payload = encodeNativeBridgeWorkerPayload({
+    debugPort,
+    disabledSystems: normalizedDisabledSystems,
+    nativeBridge,
+    timeoutMs,
+  });
   await mkdir(nativeBridgeStateDir, { recursive: true });
   const pid = startNativeBridgeWorkerDetached(payload);
-  if (pid) await writeNativeBridgeState(debugPort, nativeBridge, pid);
+  if (pid) await writeNativeBridgeState(debugPort, nativeBridge, pid, {
+    disabledSystems: normalizedDisabledSystems,
+  });
   return pid;
 }
 
@@ -391,7 +425,7 @@ async function updateNativeBridgeHeartbeat(client, nativeBridge) {
   });
 }
 
-function startNativeBridgeHeartbeat(client, nativeBridge, debugPort) {
+function startNativeBridgeHeartbeat(client, nativeBridge, debugPort, disabledSystems) {
   // 这一段定时刷新页面心跳；断线时忽略单次失败，连接关闭会由主等待路径处理。
   // Refresh the page heartbeat periodically; ignore single failures because the close wait handles disconnects.
   let stopped = false;
@@ -399,7 +433,7 @@ function startNativeBridgeHeartbeat(client, nativeBridge, debugPort) {
     if (stopped) return;
     updateNativeBridgeHeartbeat(client, nativeBridge)
       .then((result) => {
-        if (result?.result?.result?.value === true) return writeNativeBridgeWorkerHeartbeat(debugPort, nativeBridge);
+        if (result?.result?.result?.value === true) return writeNativeBridgeWorkerHeartbeat(debugPort, nativeBridge, disabledSystems);
         return null;
       })
       .catch(() => {});
@@ -412,21 +446,26 @@ function startNativeBridgeHeartbeat(client, nativeBridge, debugPort) {
   };
 }
 
-async function runNativeBridgeSession(debugPort, timeoutMs, nativeBridge) {
+async function runNativeBridgeSession(debugPort, timeoutMs, nativeBridge, disabledSystems) {
   // 这一段运行单次 CDP 会话，连接断开时返回给 worker 外层决定是否重连。
   // Run one CDP session and return to the worker loop when the connection disconnects.
   const target = await waitForTarget(debugPort, timeoutMs);
   const client = new CdpClient(target.webSocketDebuggerUrl);
+  const controller = new AbortController();
   let unbindNativeBridge = () => {};
   let stopHeartbeat = () => {};
+  let stopOverlayWatcher = () => {};
   await client.connect();
   try {
     await client.send("Runtime.enable");
     await ensureNativeBridgeBinding(client, nativeBridge);
     unbindNativeBridge = bindNativeBridgeRequests(client, nativeBridge);
-    stopHeartbeat = startNativeBridgeHeartbeat(client, nativeBridge, debugPort);
+    stopHeartbeat = startNativeBridgeHeartbeat(client, nativeBridge, debugPort, disabledSystems);
+    stopOverlayWatcher = startPetEventSoundOverlayTargetWatcher(debugPort, target.id, disabledSystems, controller.signal);
     await client.waitForClose();
   } finally {
+    controller.abort();
+    stopOverlayWatcher();
     stopHeartbeat();
     unbindNativeBridge();
     client.close();
@@ -436,7 +475,7 @@ async function runNativeBridgeSession(debugPort, timeoutMs, nativeBridge) {
 export async function runNativeBridgeWorker(payload) {
   // 这一段作为隐藏后台 worker 运行，短暂断线会自动重连，长期找不到 Codex 才退出。
   // Run as the hidden background worker, reconnecting through brief disconnects and exiting only after a long missing-target window.
-  const { debugPort, nativeBridge, timeoutMs } = payload;
+  const { debugPort, disabledSystems, nativeBridge, timeoutMs } = payload;
   let missingTargetSince = 0;
   try {
     while (true) {
@@ -445,6 +484,7 @@ export async function runNativeBridgeWorker(payload) {
           debugPort,
           Math.min(timeoutMs, nativeBridgeWorkerTargetTimeoutMs),
           nativeBridge,
+          disabledSystems,
         );
         missingTargetSince = 0;
       } catch (error) {

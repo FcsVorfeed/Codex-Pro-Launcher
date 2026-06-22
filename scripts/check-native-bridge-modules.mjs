@@ -5,6 +5,7 @@ const rootDir = path.resolve(import.meta.dirname, "..");
 const mainPath = path.join(rootDir, "src", "launcher", "native-bridge.mjs");
 const launcherMainPath = path.join(rootDir, "src", "launcher", "main.mjs");
 const injectionPath = path.join(rootDir, "src", "launcher", "injection.mjs");
+const overlayInjectionPath = path.join(rootDir, "src", "launcher", "pet-event-sound-overlay-injection.mjs");
 const nativeBridgeCorePath = path.join(rootDir, "src", "inject", "core", "native-bridge.js");
 const commonPath = path.join(rootDir, "src", "launcher", "native-bridge", "common.mjs");
 const routerPath = path.join(rootDir, "src", "launcher", "native-bridge", "router.mjs");
@@ -23,6 +24,7 @@ const rustArgsPath = path.join(rootDir, "crates", "codex-pro-core", "src", "args
 const rustAssetsPath = path.join(rootDir, "crates", "codex-pro-core", "src", "assets.rs");
 const rustDiagnosticsPath = path.join(rootDir, "crates", "codex-pro-core", "src", "diagnostics.rs");
 const rustInjectionPath = path.join(rootDir, "crates", "codex-pro-core", "src", "injection.rs");
+const rustProtocolPath = path.join(rootDir, "crates", "codex-pro-bridge", "src", "protocol.rs");
 const rustWorkerPath = path.join(rootDir, "crates", "codex-pro-bridge", "src", "worker.rs");
 const rustRouterPath = path.join(rootDir, "crates", "codex-pro-bridge", "src", "router.rs");
 const rustPetSyncPath = path.join(rootDir, "crates", "codex-pro-bridge", "src", "handlers", "pet_sync.rs");
@@ -84,6 +86,7 @@ await Promise.all([
   assertFileExists(commonPath),
   assertFileExists(routerPath),
   assertFileExists(workerCleanupPath),
+  assertFileExists(overlayInjectionPath),
   assertFileExists(diffHoverPreviewPath),
   assertFileExists(mouseGesturesPath),
   assertFileExists(todayTokenUsagePath),
@@ -97,6 +100,7 @@ await Promise.all([
   assertFileExists(rustAssetsPath),
   assertFileExists(rustDiagnosticsPath),
   assertFileExists(rustInjectionPath),
+  assertFileExists(rustProtocolPath),
   assertFileExists(rustWorkerPath),
   assertFileExists(rustRouterPath),
   assertFileExists(rustPetSyncPath),
@@ -110,6 +114,7 @@ const [
   mainSource,
   launcherMainSource,
   injectionSource,
+  overlayInjectionSource,
   nativeBridgeCoreSource,
   routerSource,
   workerCleanupSource,
@@ -126,6 +131,7 @@ const [
   rustAssetsSource,
   rustDiagnosticsSource,
   rustInjectionSource,
+  rustProtocolSource,
   rustWorkerSource,
   rustRouterSource,
   rustPetSyncSource,
@@ -136,6 +142,7 @@ const [
   readFile(mainPath, "utf8"),
   readFile(launcherMainPath, "utf8"),
   readFile(injectionPath, "utf8"),
+  readFile(overlayInjectionPath, "utf8"),
   readFile(nativeBridgeCorePath, "utf8"),
   readFile(routerPath, "utf8"),
   readFile(workerCleanupPath, "utf8"),
@@ -152,6 +159,7 @@ const [
   readFile(rustAssetsPath, "utf8"),
   readFile(rustDiagnosticsPath, "utf8"),
   readFile(rustInjectionPath, "utf8"),
+  readFile(rustProtocolPath, "utf8"),
   readFile(rustWorkerPath, "utf8"),
   readFile(rustRouterPath, "utf8"),
   readFile(rustPetSyncPath, "utf8"),
@@ -163,8 +171,11 @@ const conversationArchiveSource = (await Promise.all(
   rustConversationArchivePaths.map((filePath) => readFile(filePath, "utf8")),
 )).join("\n");
 
-assertIncludes(mainSource, "const nativeBridgeProtocolVersion = 70", "native bridge protocol version bump");
+assertIncludes(mainSource, "const nativeBridgeProtocolVersion = 71", "native bridge protocol version bump");
+assertIncludes(rustProtocolSource, "NATIVE_BRIDGE_PROTOCOL_VERSION: u32 = 71", "Rust native bridge protocol version bump");
 assertIncludes(mainSource, "protocolVersion === nativeBridgeProtocolVersion", "native bridge reusable worker version gate");
+assertIncludes(mainSource, "startPetEventSoundOverlayTargetWatcher", "native bridge worker overlay watcher import");
+assertIncludes(mainSource, "disabledSystems", "native bridge worker preserves disabled system list");
 assertIncludes(mainSource, "workerHeartbeatAt", "native bridge worker heartbeat state");
 assertIncludes(mainSource, "isNativeBridgeStateHeartbeatFresh", "native bridge reusable worker heartbeat gate");
 assertIncludes(mainSource, "isNativeBridgePageHeartbeatFresh", "native bridge reusable page heartbeat gate");
@@ -175,9 +186,14 @@ assertIncludes(mainSource, 'return await client.send("Runtime.evaluate"', "nativ
 assertIncludes(mainSource, 'from "./native-bridge/router.mjs"', "native bridge router import");
 assertIncludes(mainSource, 'from "./native-bridge/worker-cleanup.mjs"', "native bridge worker cleanup import");
 assertIncludes(injectionSource, "updatedAt: 0", "native bridge starts unavailable until worker heartbeat");
-assertIncludes(injectionSource, "buildPetEventSoundOverlayModulePaths", "pet event sound overlay manifest builder");
-assertIncludes(injectionSource, "readPetEventSoundOverlayScript", "pet event sound overlay script reader");
 assertIncludes(injectionSource, "injectPetEventSoundOverlayTargets", "pet event sound overlay target injection");
+assertIncludes(overlayInjectionSource, "buildPetEventSoundOverlayModulePaths", "pet event sound overlay manifest builder");
+assertIncludes(overlayInjectionSource, "readPetEventSoundOverlayScript", "pet event sound overlay script reader");
+assertIncludes(overlayInjectionSource, "startPetEventSoundOverlayTargetWatcher", "pet event sound overlay late target watcher");
+assertIncludes(overlayInjectionSource, "petEventSoundOverlayScanIntervalMs", "pet event sound overlay watcher interval");
+assertNotIncludes(overlayInjectionSource, "injectedTargetIds", "target-id cached pet overlay watcher");
+assertIncludes(launcherMainSource, "getReusableNativeBridge(options.debugPort, options.disabledSystems)", "native bridge reuse should honor disabled systems");
+assertIncludes(launcherMainSource, "startNativeBridgeWorker(options.debugPort, options.timeoutMs, nativeBridge, options.disabledSystems)", "native bridge worker payload should include disabled systems");
 assertIncludes(nativeBridgeCoreSource, "request.force = true", "conversation archive force flag bridge forwarding");
 assertIncludes(nativeBridgeCoreSource, '"reset"', "conversation archive reset action bridge forwarding");
 assertIncludes(nativeBridgeCoreSource, '"delete-device"', "conversation archive delete-device action bridge forwarding");
@@ -191,6 +207,7 @@ assertIncludes(nativeBridgeCoreSource, "resolvePetEventSoundStateId", "pet event
 assertIncludes(nativeBridgeCoreSource, "params?.stateId", "pet event sound bridge should expose state id requests instead of raw paths");
 assertIncludes(nativeBridgeCoreSource, 'send("pet-event-sound", { requestId, stateId })', "pet event sound bridge should send only state ids to native");
 assertIncludes(nativeBridgeCoreSource, "protocolVersion >= 70", "pet event sound bridge protocol gate");
+assertIncludes(overlayInjectionSource, "main-window-playback-v1", "pet overlay watcher should require the main-window playback runtime marker");
 assertIncludes(routerSource, '"today-token-usage"', "Today token usage router registration");
 assertIncludes(routerSource, '"pet-event-sound"', "pet event sound router registration");
 assertIncludes(rustRouterSource, "TodayTokenUsage", "Rust Today token usage router registration");
@@ -411,6 +428,12 @@ assertIncludes(rustInjectionSource, "load_local_config(source_root)", "Rust inje
 assertIncludes(rustInjectionSource, "read_injection_module_source_from_disk", "Rust injection can read dev modules from disk");
 assertIncludes(rustInjectionSource, "read_pet_event_sound_overlay_script", "Rust injection builds pet event sound overlay script");
 assertIncludes(rustInjectionSource, "inject_pet_event_sound_overlay_targets", "Rust injection targets pet event sound overlay");
+assertIncludes(rustWorkerSource, "PET_EVENT_SOUND_OVERLAY_SCAN_INTERVAL_MS", "Rust worker scans late pet overlay targets");
+assertIncludes(rustWorkerSource, "scan_pet_event_sound_overlay_targets", "Rust worker pet overlay watcher");
+assertIncludes(rustWorkerSource, "read_pet_event_sound_overlay_script", "Rust worker reads pet overlay script");
+assertIncludes(rustWorkerSource, "disabledSystems", "Rust worker payload preserves disabled system list");
+assertIncludes(rustWorkerSource, "main-window-playback-v1", "Rust worker should replace old overlay playback runtimes");
+assertNotIncludes(rustWorkerSource, "injected_overlay_target_ids", "Rust target-id cached pet overlay watcher");
 assertIncludes(rustWorkerSource, "dev-runtime", "Rust worker uses dev-runtime copy directory");
 assertIncludes(rustWorkerSource, "prepare_dev_worker_executable", "Rust worker prepares a dev exe copy");
 assertIncludes(rustWorkerSource, "configure_worker_source_root", "Rust worker configures source root for private config discovery");
@@ -427,8 +450,10 @@ assertIncludes(rustLauncherMainSource, ".stack_size(16 * 1024 * 1024)", "Rust wo
 assertIncludes(rustLauncherMainSource, "try_reuse_running_codex", "Rust launcher reuses and foregrounds running Codex");
 assertIncludes(rustLauncherMainSource, "probe_existing_runtime", "Rust launcher probes existing runtime before skipping normal reinjection");
 assertIncludes(rustLauncherMainSource, "skip_injection", "Rust launcher can foreground an already usable Codex-Pro runtime without reinjecting");
+assertNotIncludes(rustLauncherMainSource, "state.native_bridge.protocol_version != NATIVE_BRIDGE_PROTOCOL_VERSION", "protocol-gated native bridge port hints");
 assertIncludes(rustInjectionSource, "existing_runtime_probe_expression", "Rust injection can inspect an existing page runtime without DOM mutation");
 assertIncludes(rustLauncherMainSource, "source_root.as_deref()", "Rust launcher passes dev source root into injection");
+assertIncludes(rustLauncherMainSource, "&options.disabled_systems", "Rust launcher passes disabled systems into native bridge worker");
 assertIncludes(rustDiagnosticsSource, '"devRuntime"', "Rust dry-run reports dev runtime");
 assertIncludes(rustDiagnosticsSource, "rust-dev-background-worker", "Rust dry-run reports dev bridge mode");
 assertIncludes(rustDiagnosticsSource, '"sourceRoot"', "Rust dry-run reports source root");

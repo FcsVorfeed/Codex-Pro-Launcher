@@ -7,7 +7,9 @@ use crate::state::{
 };
 use anyhow::{Context, bail};
 use base64::Engine;
-use codex_pro_core::cdp::{CdpClient, wait_for_target};
+use codex_pro_core::cdp::{
+    CdpClient, CdpTarget, is_auxiliary_codex_page_target, list_targets, wait_for_target,
+};
 use codex_pro_core::native_bridge::NativeBridgeConfig;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -26,6 +28,9 @@ const WORKER_HEARTBEAT_INTERVAL_MS: u64 = 2_000;
 /// 这一段定义 worker 重连间隔。
 /// Worker reconnect interval.
 const WORKER_RECONNECT_DELAY_MS: u64 = 1_000;
+/// 这一段定义宠物浮窗补注入扫描间隔。
+/// Pet overlay reinjection scan interval.
+const PET_EVENT_SOUND_OVERLAY_SCAN_INTERVAL_MS: u64 = 1_500;
 /// 这一段定义找不到 Codex target 时的退出窗口。
 /// Exit window when no Codex target is available.
 const WORKER_TARGET_MISSING_EXIT_MS: u128 = 120_000;
@@ -52,6 +57,10 @@ struct NativeBridgeWorkerPayload {
     /// Startup timeout.
     #[serde(rename = "timeoutMs")]
     timeout_ms: u64,
+    /// 这一段是硬禁用系统列表。
+    /// Hard-disabled systems.
+    #[serde(rename = "disabledSystems", default)]
+    disabled_systems: Vec<String>,
     /// 这一段是 bridge 配置。
     /// Bridge config.
     #[serde(rename = "nativeBridge")]
@@ -67,20 +76,41 @@ pub struct NativeBridgeWorkerStatus {
     pub pid: Option<u32>,
 }
 
+/// 这一段规整硬禁用系统列表。
+/// Normalize hard-disabled system names.
+fn normalize_disabled_systems(disabled_systems: &[String]) -> Vec<String> {
+    // 这一段去空白、转小写、排序去重，避免同一配置因为顺序不同导致 worker 误复用或误重启。
+    // Trim, lowercase, sort, and dedupe so equivalent configurations reuse or restart consistently.
+    let mut normalized = disabled_systems
+        .iter()
+        .map(|system| system.trim().to_ascii_lowercase())
+        .filter(|system| !system.is_empty())
+        .collect::<Vec<_>>();
+    normalized.sort();
+    normalized.dedup();
+    normalized
+}
+
 /// 这一段启动或复用 native bridge worker。
 /// Start or reuse a native bridge worker.
 pub async fn start_or_reuse_native_bridge_worker(
     debug_port: u16,
     timeout_ms: u64,
     native_bridge: NativeBridgeConfig,
+    disabled_systems: &[String],
     dev_runtime: bool,
     source_root: Option<&Path>,
 ) -> anyhow::Result<NativeBridgeWorkerStatus> {
+    // 这一段规整硬禁用系统，确保复用判断和 worker payload 使用同一份稳定配置。
+    // Normalize hard-disabled systems so reuse checks and worker payloads share one stable configuration.
+    let normalized_disabled_systems = normalize_disabled_systems(disabled_systems);
+
     // 这一段发布模式复用仍然新鲜的同协议 worker；开发模式必须重启，避免实时注入仍跑旧 Rust exe。
     // Reuse a still-fresh same-protocol worker only in release mode; dev mode must restart so live injection does not keep an old Rust exe.
     if let Some(state) = read_native_bridge_state(debug_port).await {
         if !dev_runtime
             && state.native_bridge == native_bridge
+            && state.disabled_systems == normalized_disabled_systems
             && heartbeat_is_fresh(&state, WORKER_HEARTBEAT_MAX_AGE_MS)
             && codex_pro_core::process::is_process_alive(state.pid)
         {
@@ -99,12 +129,14 @@ pub async fn start_or_reuse_native_bridge_worker(
             .map(|path| path.to_string_lossy().to_string())
             .unwrap_or_default(),
         timeout_ms,
+        disabled_systems: normalized_disabled_systems.clone(),
         native_bridge: native_bridge.clone(),
     })?;
     let pid = spawn_worker_process(&payload, &native_bridge, dev_runtime, source_root).await?;
     write_native_bridge_state(&NativeBridgeState {
         debug_port,
         native_bridge: native_bridge.clone(),
+        disabled_systems: normalized_disabled_systems,
         pid,
         started_at: now_text(),
         worker_heartbeat_at: String::new(),
@@ -256,14 +288,43 @@ async fn run_native_bridge_session(payload: &NativeBridgeWorkerPayload) -> anyho
     }
     update_worker_heartbeat(&mut client, payload).await?;
 
-    // 这一段用 interval 定时刷新心跳，同时监听 bindingCalled。
-    // Refresh heartbeat on an interval while processing bindingCalled events.
+    // 这一段准备宠物浮窗补注入脚本；禁用系统时保持为空。
+    // Prepare the pet-overlay reinjection script; keep it empty when the system is disabled.
+    let overlay_script = codex_pro_core::injection::read_pet_event_sound_overlay_script(
+        &payload.disabled_systems,
+        worker_payload_source_root(payload),
+    )?;
+    if let Err(error) = scan_pet_event_sound_overlay_targets(
+        payload.debug_port,
+        &target.id,
+        overlay_script.as_deref(),
+    )
+    .await
+    {
+        eprintln!("[Codex-Pro] pet event sound overlay watcher skipped: {error:#}");
+    }
+
+    // 这一段用 interval 定时刷新心跳、补注入晚创建宠物浮窗，同时监听 bindingCalled。
+    // Refresh heartbeat, inject late-created pet overlays, and process bindingCalled events.
     let mut interval = tokio::time::interval(Duration::from_millis(WORKER_HEARTBEAT_INTERVAL_MS));
+    let mut overlay_interval = tokio::time::interval(Duration::from_millis(
+        PET_EVENT_SOUND_OVERLAY_SCAN_INTERVAL_MS,
+    ));
+    overlay_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let (bridge_event_tx, mut bridge_event_rx) = tokio::sync::mpsc::unbounded_channel();
     loop {
         tokio::select! {
             _ = interval.tick() => {
                 update_worker_heartbeat(&mut client, payload).await?;
+            }
+            _ = overlay_interval.tick() => {
+                if let Err(error) = scan_pet_event_sound_overlay_targets(
+                    payload.debug_port,
+                    &target.id,
+                    overlay_script.as_deref(),
+                ).await {
+                    eprintln!("[Codex-Pro] pet event sound overlay watcher skipped: {error:#}");
+                }
             }
             event = bridge_event_rx.recv() => {
                 if let Some(event) = event {
@@ -319,6 +380,7 @@ async fn update_worker_heartbeat(
     write_native_bridge_state(&NativeBridgeState {
         debug_port: payload.debug_port,
         native_bridge: payload.native_bridge.clone(),
+        disabled_systems: payload.disabled_systems.clone(),
         pid: std::process::id(),
         started_at: read_native_bridge_state(payload.debug_port)
             .await
@@ -327,6 +389,137 @@ async fn update_worker_heartbeat(
         worker_heartbeat_at: now_text(),
     })
     .await
+}
+
+/// 这一段返回 worker payload 里的开发源码根。
+/// Return the development source root from the worker payload.
+fn worker_payload_source_root(payload: &NativeBridgeWorkerPayload) -> Option<&Path> {
+    // 这一段只在 payload 携带源码根时让浮窗 watcher 读取磁盘源码；发布模式继续使用嵌入资产。
+    // Read disk sources for the overlay watcher only when the payload carries a source root; release mode keeps embedded assets.
+    let source_root = payload.source_root.trim();
+    if source_root.is_empty() {
+        return None;
+    }
+    Some(Path::new(source_root))
+}
+
+/// 这一段扫描宠物浮窗并补注入状态音效运行态。
+/// Scan avatar overlays and inject the pet-state sound runtime.
+async fn scan_pet_event_sound_overlay_targets(
+    debug_port: u16,
+    selected_target_id: &str,
+    script: Option<&str>,
+) -> anyhow::Result<()> {
+    // 这一段在系统被硬禁用时直接跳过，避免无意义的 CDP 扫描。
+    // Skip CDP scanning when the system is hard-disabled.
+    let Some(script) = script.filter(|value| !value.trim().is_empty()) else {
+        return Ok(());
+    };
+
+    // 这一段读取当前所有 target，只选择主窗口之外的宠物 overlay。
+    // Read current targets and select only pet overlays outside the main window.
+    let targets = list_targets(debug_port).await?;
+    for target in targets
+        .iter()
+        .filter(|target| target.id != selected_target_id && is_auxiliary_codex_page_target(target))
+    {
+        // 这一段不按 target id 缓存“已注入”，因为宠物窗口关闭再打开时可能复用同一个 target id 但页面运行态已丢失。
+        // Do not cache "injected" by target id because closing and reopening the pet window can reuse the same target id with a fresh page runtime.
+        match inject_pet_event_sound_overlay_target(target, script).await {
+            Ok(true) => {}
+            Ok(false) => {}
+            Err(error) => {
+                eprintln!(
+                    "[Codex-Pro] pet event sound overlay watcher failed {}: {error:#}",
+                    target_label(target)
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+/// 这一段返回 target 的诊断标签。
+/// Return a diagnostic label for a target.
+fn target_label(target: &CdpTarget) -> &str {
+    // 这一段优先 URL，再回退 id，避免日志里出现空字符串。
+    // Prefer the URL and fall back to the id so logs do not show an empty label.
+    if target.url.trim().is_empty() {
+        &target.id
+    } else {
+        &target.url
+    }
+}
+
+/// 这一段向单个宠物浮窗注入最小音效运行态。
+/// Inject the minimal sound runtime into one avatar overlay.
+async fn inject_pet_event_sound_overlay_target(
+    target: &CdpTarget,
+    script: &str,
+) -> anyhow::Result<bool> {
+    // 这一段再次确认 target 可连接，避免无 WebSocket 的页面影响 watcher。
+    // Confirm the target is connectable so pages without a WebSocket do not affect the watcher.
+    if !is_auxiliary_codex_page_target(target) {
+        return Ok(false);
+    }
+    let Some(websocket_url) = target.web_socket_debugger_url.as_deref() else {
+        return Ok(false);
+    };
+
+    // 这一段执行已存在运行态检查和立即注入；关闭连接放在 result 之后，避免泄漏 CDP socket。
+    // Check for an existing runtime and inject immediately; close the socket after the result to avoid leaking CDP connections.
+    let mut client = CdpClient::connect(websocket_url).await?;
+    let result = async {
+        client.send("Runtime.enable", json!({})).await?;
+        if has_pet_event_sound_overlay_runtime(&mut client).await? {
+            return Ok(true);
+        }
+        client
+            .send(
+                "Page.addScriptToEvaluateOnNewDocument",
+                json!({ "source": script }),
+            )
+            .await?;
+        client
+            .send(
+                "Runtime.evaluate",
+                json!({
+                    "expression": script,
+                    "awaitPromise": false,
+                    "allowUnsafeEvalBlockedByCSP": true,
+                }),
+            )
+            .await?;
+        Ok(true)
+    }
+    .await;
+    client.close().await;
+    result
+}
+
+/// 这一段判断宠物浮窗是否已有状态音效运行态。
+/// Return whether the avatar overlay already has the pet-state sound runtime.
+async fn has_pet_event_sound_overlay_runtime(client: &mut CdpClient) -> anyhow::Result<bool> {
+    // 这一段检查 runtime systems 和启动状态，避免重复执行同一 bundle。
+    // Check runtime systems and started state so the same bundle is not executed repeatedly.
+    let response = client
+        .send(
+            "Runtime.evaluate",
+            json!({
+                "expression": r#"
+(() => Boolean(
+  window.__codexProRuntime?.systems?.some((system) => system?.name === "pet-event-sounds") &&
+  window.__codexProRuntime?.systemStates?.["pet-event-sounds"]?.started === true &&
+  window.__codexProPetEventSoundsOverlayMode === "main-window-playback-v1"
+))()
+"#,
+                "returnByValue": true,
+                "awaitPromise": true,
+                "allowUnsafeEvalBlockedByCSP": true,
+            }),
+        )
+        .await?;
+    Ok(runtime_evaluate_bool(&response))
 }
 
 /// 这一段判断错误是否表示当前 worker 已被新 bridge 取代。

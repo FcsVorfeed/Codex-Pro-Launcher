@@ -7,12 +7,10 @@ import {
   listTargets,
   waitForTarget,
 } from "./cdp-client.mjs";
-import {
-  buildInjectionModulePaths,
-  buildPetEventSoundOverlayModulePaths,
-} from "./injection-manifest.mjs";
+import { buildInjectionModulePaths } from "./injection-manifest.mjs";
 import { readLocalConfig } from "./local-config.mjs";
 import { ensureNativeBridgeBinding } from "./native-bridge.mjs";
+import { injectPetEventSoundOverlayTargets } from "./pet-event-sound-overlay-injection.mjs";
 import { rootDir } from "./paths.mjs";
 
 export async function inject(debugPort, timeoutMs, disabledSystems, nativeBridge) {
@@ -47,38 +45,6 @@ export async function inject(debugPort, timeoutMs, disabledSystems, nativeBridge
   // 这一段返回目标和仍保持连接的客户端，供原生快捷键桥接继续监听。
   // Return the target and still-open client so the native shortcut bridge can keep listening.
   return { client, target };
-}
-
-async function injectPetEventSoundOverlayTargets(debugPort, selectedTargetId, disabledSystems) {
-  // 这一段把最小宠物状态音效运行态注入到辅助宠物窗口，避免完整主界面脚本进入浮窗。
-  // Inject the minimal pet-state sound runtime into auxiliary pet windows without bringing the full main-window script.
-  const script = await readPetEventSoundOverlayScript(disabledSystems);
-  if (!script) return;
-  let targets = [];
-  try {
-    targets = (await listTargets(debugPort)).targets;
-  } catch (error) {
-    console.warn("[Codex-Pro] pet event sound overlay injection skipped", error?.message || error);
-    return;
-  }
-
-  for (const target of targets.filter((item) => item.id !== selectedTargetId && isAuxiliaryCodexPageTarget(item))) {
-    const auxiliaryClient = new CdpClient(target.webSocketDebuggerUrl);
-    try {
-      await auxiliaryClient.connect();
-      await auxiliaryClient.send("Runtime.enable");
-      await auxiliaryClient.send("Page.addScriptToEvaluateOnNewDocument", { source: script });
-      await auxiliaryClient.send("Runtime.evaluate", {
-        expression: script,
-        awaitPromise: false,
-        allowUnsafeEvalBlockedByCSP: true,
-      });
-    } catch (error) {
-      console.warn("[Codex-Pro] pet event sound overlay injection failed", target.url || target.id, error?.message || error);
-    } finally {
-      auxiliaryClient.close();
-    }
-  }
 }
 
 async function cleanupAuxiliaryCodexTargets(debugPort, selectedTargetId) {
@@ -175,38 +141,6 @@ export async function readInjectionScript(disabledSystems, nativeBridge) {
 
   // 这一段拼成单段脚本给 CDP 注入，避免浏览器页面直接 import 本地文件。
   // Join modules into one script for CDP injection so the browser page never imports local files.
-  return [configModule, ...modules]
-    .map(({ relativePath, source }) => `\n// Codex-Pro module: ${relativePath}\n${source}`)
-    .join("\n");
-}
-
-export async function readPetEventSoundOverlayScript(disabledSystems) {
-  // 这一段读取宠物浮窗最小注入模块；禁用系统时返回空字符串。
-  // Read the minimal pet-overlay injection modules; return an empty string when the system is disabled.
-  const injectionModulePaths = buildPetEventSoundOverlayModulePaths(disabledSystems);
-  if (!injectionModulePaths.length) return "";
-  const localConfig = await readLocalConfig();
-  const configModule = {
-    relativePath: "codex-pro-pet-overlay-runtime-config",
-    source: [
-      `window.__codexProHardDisabledSystems = ${JSON.stringify(disabledSystems)};`,
-      `window.__codexProLocalConfig = ${JSON.stringify(localConfig)};`,
-      "window.__codexProNativeBridgeConfig = window.__codexProNativeBridgeConfig || null;",
-    ].join("\n"),
-  };
-  const modules = await Promise.all(
-    injectionModulePaths.map(async (parts) => {
-      const filePath = path.join(rootDir, ...parts);
-      const source = await readFile(filePath, "utf8");
-      return {
-        relativePath: parts.join("/"),
-        source,
-      };
-    }),
-  );
-
-  // 这一段拼成单段脚本给辅助窗口执行，保持和主注入相同的模块标记格式。
-  // Join modules into one script for the auxiliary window, keeping the same module-marker format as main injection.
   return [configModule, ...modules]
     .map(({ relativePath, source }) => `\n// Codex-Pro module: ${relativePath}\n${source}`)
     .join("\n");

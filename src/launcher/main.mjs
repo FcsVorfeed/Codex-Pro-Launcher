@@ -82,7 +82,7 @@ export async function main(argv = process.argv.slice(2)) {
   // 这一段把 Codex-Pro 注入模块注入到 Codex 页面，并输出结果。
   // Inject Codex-Pro modules into the Codex page and print the result.
   const reusableNativeBridge = options.nativeBridge
-    ? await getReusableNativeBridge(options.debugPort)
+    ? await getReusableNativeBridge(options.debugPort, options.disabledSystems)
     : null;
   const nativeBridge = reusableNativeBridge?.nativeBridge || createNativeBridgeConfig(options.nativeBridge);
   const { client, target } = await inject(options.debugPort, options.timeoutMs, options.disabledSystems, nativeBridge);
@@ -98,7 +98,7 @@ export async function main(argv = process.argv.slice(2)) {
   if (reusableNativeBridge) {
     console.log(`Native shortcut bridge reused in background pid=${reusableNativeBridge.pid}`);
   } else {
-    const pid = await startNativeBridgeWorker(options.debugPort, options.timeoutMs, nativeBridge);
+    const pid = await startNativeBridgeWorker(options.debugPort, options.timeoutMs, nativeBridge, options.disabledSystems);
     const readyBridge = await waitForNativeBridgeReady(options.debugPort, nativeBridge);
     if (!readyBridge) {
       throw new Error("Native shortcut bridge did not report a fresh heartbeat after startup.");

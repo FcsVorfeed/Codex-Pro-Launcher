@@ -5,7 +5,7 @@
   const channelName = "codex-pro:pet-event-sounds:v1";
   const settingsStorageKey = "codex-pro:settings";
   const avatarStateSelector = ".codex-avatar-root[data-avatar-state]";
-  const loadTimeoutMs = 10000;
+  const overlayPlaybackMode = "main-window-playback-v1";
   const defaultSoundVolume = 100;
 
   function getSettingsApi() {
@@ -98,11 +98,11 @@
   function startMainCoordinator(signal) {
     // 这一段在主窗口提供设置页试听，并接收浮窗的音频读取请求。
     // In the main window, provide settings-page preview and receive overlay audio-load requests.
-    const previewRuntime = createAudioPlaybackRuntime(signal, requestConfiguredSoundData);
+    const playbackRuntime = createAudioPlaybackRuntime(signal, requestConfiguredSoundData);
     const petEventSoundsModule = runtime.systemModules.petEventSounds ??= {};
     petEventSoundsModule.previewState = (stateId, options = {}) => {
-      previewRuntime.clearCache();
-      return previewRuntime.playState(stateId, { ignoreCooldown: true, volume: options.volume });
+      playbackRuntime.clearCache();
+      return playbackRuntime.playState(stateId, { ignoreCooldown: true, volume: options.volume });
     };
     signal.addEventListener("abort", () => {
       if (petEventSoundsModule.previewState) delete petEventSoundsModule.previewState;
@@ -116,12 +116,20 @@
 
     channel.addEventListener("message", async (event) => {
       // 这一段只处理浮窗发来的 load 请求，其它消息直接忽略。
-      // Handle only load requests from the overlay and ignore every other message.
+      // Handle only known overlay requests and ignore every other message.
       const message = event?.data;
-      if (!message || message.source !== "avatar" || message.kind !== "load-sound") return;
+      if (!message || message.source !== "avatar") return;
       const requestId = normalizeText(message.requestId, 80);
       const stateId = normalizeConfiguredStateId(getSettingsApi(), message.stateId);
-      if (!requestId || !stateId) return;
+      if (!stateId) return;
+
+      if (message.kind === "play-state") {
+        // 这一段让主窗口承担真实播放，避开宠物小窗未聚焦时 WebAudio 被用户手势策略拦截的问题。
+        // Let the main window perform playback so the avatar overlay is not blocked by user-activation audio policy.
+        playbackRuntime.playState(stateId).catch(() => {});
+        return;
+      }
+      if (message.kind !== "load-sound" || !requestId) return;
 
       // 这一段重新读取当前设置并按状态 id 解析路径，避免旧消息在设置变更后继续读取文件。
       // Re-read current settings and resolve the path by state id so stale messages cannot keep reading files after settings change.
@@ -255,54 +263,13 @@
   }
 
   function createAvatarAudioRuntime(channel, signal) {
-    // 这一段建立浮窗侧跨页面请求运行态，再复用共享播放器执行真实播放。
-    // Build the overlay cross-page request runtime, then reuse the shared player for actual playback.
-    const pendingRequests = new Map();
-
-    function finishRequest(requestId, response) {
-      // 这一段完成一个等待中的音频读取请求，并清理定时器，避免浮窗长时间运行时泄漏。
-      // Finish one pending audio-load request and clear its timer to avoid leaks in the long-lived overlay.
-      const pending = pendingRequests.get(requestId);
-      if (!pending) return;
-      window.clearTimeout(pending.timeoutId);
-      pendingRequests.delete(requestId);
-      pending.resolve(response);
-    }
-
-    function requestSoundData(stateId) {
-      // 这一段向主窗口请求音频文件内容，超时后返回 null，避免状态监听链路被卡住。
-      // Request audio file content from the main window and return null on timeout so state handling cannot hang.
-      const requestId = crypto.randomUUID();
-      return new Promise((resolve) => {
-        const timeoutId = window.setTimeout(() => finishRequest(requestId, null), loadTimeoutMs);
-        pendingRequests.set(requestId, { resolve, timeoutId });
-        channel.postMessage({ kind: "load-sound", requestId, source: "avatar", stateId });
-      });
-    }
-
-    const playbackRuntime = createAudioPlaybackRuntime(signal, requestSoundData);
-
-    channel.addEventListener("message", (event) => {
-      // 这一段接收主窗口回传的音频读取结果，并只唤醒匹配 request id 的等待者。
-      // Receive main-window audio-load responses and wake only the waiter with the matching request id.
-      const message = event?.data;
-      if (!message || message.source !== "main" || message.kind !== "sound-response") return;
-      const requestId = normalizeText(message.requestId, 80);
-      if (!requestId) return;
-      finishRequest(requestId, message);
-    }, { signal });
-
-    signal.addEventListener("abort", () => {
-      // 这一段关闭时释放等待请求，避免重复注入后残留旧回包处理器。
-      // On shutdown, release pending requests so reinjection does not leave stale response handlers.
-      for (const [requestId] of pendingRequests) finishRequest(requestId, null);
-    }, { once: true });
-
+    // 这一段让宠物浮窗只上报状态事件，不在浮窗内创建 AudioContext，避免必须先点击宠物窗口。
+    // Let the avatar overlay report state events only and avoid creating an AudioContext inside the unfocused overlay.
     return {
       handleStateTrigger(stateId) {
-        // 这一段按当前设置决定某个状态是否播放音效，未配置路径时直接跳过。
-        // Decide from current settings whether a state should play sound, skipping states without configured paths.
-        playbackRuntime.playState(stateId).catch(() => {});
+        // 这一段把状态变化交给主窗口播放；主窗口会重新读取设置并应用冷却和音量。
+        // Hand the state change to the main window, which re-reads settings and applies cooldown and volume.
+        channel.postMessage({ kind: "play-state", source: "avatar", stateId });
       },
     };
   }
@@ -318,6 +285,7 @@
   function startAvatarObserver(signal) {
     // 这一段在宠物浮窗里观察官方 data-avatar-state，并把状态变化交给音频运行态。
     // In the pet overlay, observe the official data-avatar-state and hand state changes to the audio runtime.
+    window.__codexProPetEventSoundsOverlayMode = overlayPlaybackMode;
     const channel = openBroadcastChannel();
     if (!channel) return;
     signal.addEventListener("abort", () => channel.close(), { once: true });
@@ -355,8 +323,8 @@
   }
 
   runtime.registerSystem("pet-event-sounds", () => {
-    // 这一段为主窗口和宠物浮窗分别启动协调器或状态观察器，不让主窗口承担播放工作。
-    // Start the coordinator or state observer by page role, keeping actual playback inside the pet overlay.
+    // 这一段为主窗口和宠物浮窗分别启动协调器或状态观察器，实际播放由主窗口承担以避开浮窗音频激活限制。
+    // Start the coordinator or state observer by page role, with actual playback in the main window to avoid overlay audio activation limits.
     const controller = new AbortController();
     runtime.lifecycle?.replaceController?.("pet-event-sounds", controller);
     if (isAvatarOverlayPage()) {

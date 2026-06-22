@@ -15,6 +15,10 @@ pub struct NativeBridgeState {
     /// Bridge configuration.
     #[serde(rename = "nativeBridge")]
     pub native_bridge: NativeBridgeConfig,
+    /// 这一段是启动 worker 时的硬禁用系统列表。
+    /// Hard-disabled systems used when the worker was started.
+    #[serde(rename = "disabledSystems", default)]
+    pub disabled_systems: Vec<String>,
     /// 这一段是 worker pid。
     /// Worker pid.
     pub pid: u32,
