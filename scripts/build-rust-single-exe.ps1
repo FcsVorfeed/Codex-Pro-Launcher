@@ -45,13 +45,36 @@ function Get-WorkspacePackageVersion {
   throw "Cargo.toml missing [workspace.package] semantic version"
 }
 
+# 这一段读取 Cargo workspace 仓库地址，作为 GitHub Release 链接和 latest.json 的同一来源。
+# Read the Cargo workspace repository URL so GitHub Release links and latest.json share one source.
+function Get-WorkspaceRepositoryUrl {
+  $cargoTomlPath = Join-Path $repoRoot "Cargo.toml"
+  $insideWorkspacePackage = $false
+  foreach ($line in Get-Content -LiteralPath $cargoTomlPath -Encoding UTF8) {
+    if ($line -eq "[workspace.package]") {
+      $insideWorkspacePackage = $true
+      continue
+    }
+    if ($insideWorkspacePackage -and $line -match '^\[') {
+      break
+    }
+    if ($insideWorkspacePackage -and $line -match '^repository\s*=\s*"(?<repository>[^"]+)"') {
+      return $Matches.repository.TrimEnd("/")
+    }
+  }
+
+  throw "Cargo.toml missing [workspace.package] repository"
+}
+
 # 这一段固定输出目录到 private，避免发布产物混入公开源码树。
 # Use a dedicated private output directory so release artifacts do not mix into the public source tree.
 $outputDir = Join-Path $repoRoot "private\build\rust"
 $releaseVersion = Get-WorkspacePackageVersion
+$repositoryUrl = Get-WorkspaceRepositoryUrl
 $outputExe = Join-Path $outputDir "Codex-Pro-Launcher.exe"
 $versionedOutputExe = Join-Path $outputDir "Codex-Pro-Launcher-v$releaseVersion.exe"
 $versionedOutputZip = Join-Path $outputDir "Codex-Pro-Launcher-v$releaseVersion-windows.zip"
+$latestJsonPath = Join-Path $outputDir "latest.json"
 $targetDir = Join-Path $repoRoot "private\target"
 $releaseConfigEnvName = "CODEX_PRO_RELEASE_CONFIG_JSON"
 
@@ -123,6 +146,64 @@ function Assert-LicenseProductSlug {
   }
 }
 
+# 这一段生成 GitHub Release 下载地址，避免 latest.json 手写资产 URL。
+# Build a GitHub Release download URL so latest.json never needs hand-written asset URLs.
+function Get-GitHubReleaseAssetUrl {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$RepositoryUrl,
+
+    [Parameter(Mandatory = $true)]
+    [string]$ReleaseTag,
+
+    [Parameter(Mandatory = $true)]
+    [string]$AssetName
+  )
+
+  if ($RepositoryUrl -notmatch '^https://github\.com/[^/]+/[^/]+$') {
+    throw "workspace repository must be a GitHub HTTPS URL for latest.json: $RepositoryUrl"
+  }
+
+  $encodedAssetName = [System.Uri]::EscapeDataString($AssetName)
+  return "$RepositoryUrl/releases/download/$ReleaseTag/$encodedAssetName"
+}
+
+# 这一段把发布产物索引写成 Codex++ 同款固定文件，供启动器自动检查更新。
+# Write a Codex++-style release index so the launcher can auto-check updates.
+function Write-ReleaseLatestJson {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path,
+
+    [Parameter(Mandatory = $true)]
+    [string]$Version,
+
+    [Parameter(Mandatory = $true)]
+    [string]$RepositoryUrl,
+
+    [Parameter(Mandatory = $true)]
+    [string[]]$AssetPaths
+  )
+
+  $releaseTag = "v$Version"
+  $assets = @()
+  foreach ($assetPath in $AssetPaths) {
+    $assetName = Split-Path -Leaf $assetPath
+    $assets += [ordered]@{
+      name = $assetName
+      url = Get-GitHubReleaseAssetUrl -RepositoryUrl $RepositoryUrl -ReleaseTag $releaseTag -AssetName $assetName
+    }
+  }
+
+  $payload = [ordered]@{
+    version = $Version
+    url = "$RepositoryUrl/releases/tag/$releaseTag"
+    body = ""
+    assets = $assets
+  }
+  $payload | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $Path -Encoding utf8NoBOM
+}
+
 # 这一段把 private 配置抽取成允许进入 release exe 的公开运行配置。
 # Extract only public runtime fields from private config for the release executable.
 function Get-ReleaseRuntimeConfigJson {
@@ -160,6 +241,14 @@ function Get-ReleaseRuntimeConfigJson {
     }
   }
 
+  $updateLatestJsonUrl = ""
+  if ($null -ne $rawConfig.update -and $null -ne $rawConfig.update.latestJsonUrl) {
+    $updateLatestJsonUrl = ([string]$rawConfig.update.latestJsonUrl).Trim()
+    if (-not [string]::IsNullOrWhiteSpace($updateLatestJsonUrl)) {
+      Assert-HttpsUrl $updateLatestJsonUrl "update.latestJsonUrl"
+    }
+  }
+
   $publicConfig = [ordered]@{
     sync = [ordered]@{
       cloudSyncEndpoint = $cloudSyncEndpoint
@@ -174,6 +263,9 @@ function Get-ReleaseRuntimeConfigJson {
     }
     appearance = [ordered]@{
       defaultBackgroundWallpaperImages = $wallpaperImages
+    }
+    update = [ordered]@{
+      latestJsonUrl = $updateLatestJsonUrl
     }
     conversationArchive = [ordered]@{}
   }
@@ -212,6 +304,7 @@ if (Test-Path -LiteralPath $versionedOutputZip) {
   Remove-Item -LiteralPath $versionedOutputZip -Force
 }
 Compress-Archive -LiteralPath $outputExe -DestinationPath $versionedOutputZip
+Write-ReleaseLatestJson -Path $latestJsonPath -Version $releaseVersion -RepositoryUrl $repositoryUrl -AssetPaths @($versionedOutputZip, $versionedOutputExe)
 
 # 这一段输出体积并提示验收风险。
 # Print size and warn when it exceeds the acceptance target.
@@ -220,6 +313,7 @@ $sizeMb = [Math]::Round($sizeBytes / 1MB, 2)
 Write-Host "Rust launcher: $outputExe"
 Write-Host "Release asset: $versionedOutputExe"
 Write-Host "Release ZIP asset: $versionedOutputZip"
+Write-Host "Release index: $latestJsonPath"
 Write-Host "Version: $releaseVersion"
 Write-Host "Size: $sizeMb MB"
 if ($sizeBytes -gt (15MB)) {
@@ -233,5 +327,6 @@ if ($Desktop) {
   Copy-Item -Force $outputExe (Join-Path $desktop "Codex-Pro-Launcher.exe")
   Copy-Item -Force $versionedOutputExe (Join-Path $desktop "Codex-Pro-Launcher-v$releaseVersion.exe")
   Copy-Item -Force $versionedOutputZip (Join-Path $desktop "Codex-Pro-Launcher-v$releaseVersion-windows.zip")
+  Copy-Item -Force $latestJsonPath (Join-Path $desktop "latest.json")
   Write-Host "Copied to Desktop."
 }

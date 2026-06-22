@@ -1,6 +1,6 @@
 use crate::handlers::{
     cloud_sync, conversation_archive, diff_hover_preview, mouse_gestures, pet_sync,
-    today_token_usage,
+    today_token_usage, update_check,
 };
 use crate::protocol::{NATIVE_BRIDGE_MAX_PAYLOAD_LENGTH, NATIVE_BRIDGE_RESPONSE_EVENT_NAME};
 use codex_pro_core::cdp::CdpClient;
@@ -33,6 +33,9 @@ pub enum BridgeRequest {
     /// 这一段是 Today token 本机聚合请求。
     /// Local Today token aggregation request.
     TodayTokenUsage(today_token_usage::TodayTokenUsageRequest),
+    /// 这一段是更新检查请求。
+    /// Update-check request.
+    UpdateCheck(update_check::UpdateCheckRequest),
 }
 
 /// 这一段描述业务任务要交回 CDP 主循环处理的事件。
@@ -92,6 +95,9 @@ pub fn parse_native_bridge_request(
             .map(BridgeRequest::ConversationArchive),
         "today-token-usage" => today_token_usage::parse_today_token_usage_request(&value)
             .map(BridgeRequest::TodayTokenUsage),
+        "update-check" => {
+            update_check::parse_update_check_request(&value).map(BridgeRequest::UpdateCheck)
+        }
         _ => None,
     }
 }
@@ -149,6 +155,20 @@ pub fn dispatch_native_bridge_request(events: BridgeWorkerEventSender, request: 
                         json!({ "ok": false, "status": 0, "data": null, "error": error.to_string() })
                     });
                 send_response(events, request_id, "today-token-usage", response);
+            });
+        }
+        BridgeRequest::UpdateCheck(request) => {
+            tokio::spawn(async move {
+                let request_id = request.request_id.clone();
+                // 这一段返回中性错误码，避免把私有更新源或网络细节暴露给页面。
+                // Return a neutral error code so private update sources or network details never reach the page.
+                let response = update_check::run_update_check_request(&request)
+                    .await
+                    .unwrap_or_else(|error| {
+                        eprintln!("[Codex-Pro] update check failed: {error}");
+                        json!({ "ok": false, "status": 0, "data": null, "error": "updateCheckFailed" })
+                    });
+                send_response(events, request_id, "update-check", response);
             });
         }
     }

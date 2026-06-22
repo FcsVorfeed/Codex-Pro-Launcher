@@ -24,6 +24,7 @@ const rustInjectionPath = path.join(rootDir, "crates", "codex-pro-core", "src", 
 const rustWorkerPath = path.join(rootDir, "crates", "codex-pro-bridge", "src", "worker.rs");
 const rustRouterPath = path.join(rootDir, "crates", "codex-pro-bridge", "src", "router.rs");
 const rustPetSyncPath = path.join(rootDir, "crates", "codex-pro-bridge", "src", "handlers", "pet_sync.rs");
+const rustUpdateCheckPath = path.join(rootDir, "crates", "codex-pro-bridge", "src", "handlers", "update_check.rs");
 const rustConversationArchiveDir = path.join(rootDir, "crates", "codex-pro-bridge", "src", "handlers", "conversation_archive");
 const rustConversationArchivePaths = [
   "codex_state.rs",
@@ -94,6 +95,7 @@ await Promise.all([
   assertFileExists(rustWorkerPath),
   assertFileExists(rustRouterPath),
   assertFileExists(rustPetSyncPath),
+  assertFileExists(rustUpdateCheckPath),
   ...rustConversationArchivePaths.map((filePath) => assertFileExists(filePath)),
   assertFileExists(rustLauncherMainPath),
 ]);
@@ -119,6 +121,7 @@ const [
   rustWorkerSource,
   rustRouterSource,
   rustPetSyncSource,
+  rustUpdateCheckSource,
   rustLauncherMainSource,
 ] = await Promise.all([
   readFile(mainPath, "utf8"),
@@ -141,6 +144,7 @@ const [
   readFile(rustWorkerPath, "utf8"),
   readFile(rustRouterPath, "utf8"),
   readFile(rustPetSyncPath, "utf8"),
+  readFile(rustUpdateCheckPath, "utf8"),
   readFile(rustLauncherMainPath, "utf8"),
 ]);
 const conversationArchiveSource = (await Promise.all(
@@ -164,8 +168,17 @@ assertIncludes(nativeBridgeCoreSource, '"reset"', "conversation archive reset ac
 assertIncludes(nativeBridgeCoreSource, '"delete-device"', "conversation archive delete-device action bridge forwarding");
 assertIncludes(nativeBridgeCoreSource, "request.deviceId = deviceId", "conversation archive device id bridge forwarding");
 assertIncludes(nativeBridgeCoreSource, "requestTodayTokenUsage", "Today token usage bridge request");
+assertIncludes(nativeBridgeCoreSource, "supportsUpdateCheck", "update-check bridge capability gate");
+assertIncludes(nativeBridgeCoreSource, "requestUpdateCheck", "update-check bridge request");
 assertIncludes(routerSource, '"today-token-usage"', "Today token usage router registration");
 assertIncludes(rustRouterSource, "TodayTokenUsage", "Rust Today token usage router registration");
+assertIncludes(rustRouterSource, "UpdateCheck", "Rust update-check router registration");
+assertIncludes(rustRouterSource, '"update-check"', "Rust update-check request type");
+assertIncludes(rustRouterSource, '"updateCheckFailed"', "Rust update-check returns a neutral page error");
+assertIncludes(rustUpdateCheckSource, "pub fn parse_update_check_request", "Rust update-check request parser export");
+assertIncludes(rustUpdateCheckSource, "pub async fn run_update_check_request", "Rust update-check runner export");
+assertIncludes(rustUpdateCheckSource, "latest.json", "Rust update-check uses release index");
+assertIncludes(rustUpdateCheckSource, "parser_rejects_page_supplied_url", "Rust update-check rejects page URL contract");
 assertIncludes(nativeBridgeCoreSource, 'detail.type === "conversation-archive-progress"', "conversation archive progress event listener");
 assertIncludes(nativeBridgeCoreSource, "resetTimeout();", "conversation archive idle timeout refresh");
 assertIncludes(conversationArchiveSource, 'join("pending-device-deletes.json")', "Rust conversation archive pending device delete state path");
@@ -314,14 +327,21 @@ assertIncludes(buildRustScriptSource, "Assert-LicensePublishableKey $licenseApiK
 assertIncludes(buildRustScriptSource, "Assert-LicenseProductSlug $licenseProductSlug", "release build validates license product slug");
 assertIncludes(buildRustScriptSource, "Set-Item -Path \"Env:$releaseConfigEnvName\" -Value $releaseConfigJson", "release build exports embedded runtime config to cargo");
 assertIncludes(buildRustScriptSource, "Get-WorkspacePackageVersion", "release build reads the workspace package version");
+assertIncludes(buildRustScriptSource, "Get-WorkspaceRepositoryUrl", "release build reads the workspace repository URL");
 assertIncludes(buildRustScriptSource, "$versionedOutputExe = Join-Path $outputDir \"Codex-Pro-Launcher-v$releaseVersion.exe\"", "release build names the upload asset with the version");
 assertIncludes(buildRustScriptSource, "$versionedOutputZip = Join-Path $outputDir \"Codex-Pro-Launcher-v$releaseVersion-windows.zip\"", "release build names the primary zip asset with the version");
+assertIncludes(buildRustScriptSource, "$latestJsonPath = Join-Path $outputDir \"latest.json\"", "release build names the update index");
 assertIncludes(buildRustScriptSource, "cargo test --target-dir $targetDir", "release build tests use private Cargo target");
 assertIncludes(buildRustScriptSource, "cargo clippy --target-dir $targetDir --all-targets -- -D warnings", "release build clippy uses private Cargo target");
 assertIncludes(buildRustScriptSource, "cargo build --target-dir $targetDir --release --bin Codex-Pro-Launcher", "release build uses private Cargo target");
 assertIncludes(buildRustScriptSource, "Join-Path $targetDir \"release\\Codex-Pro-Launcher.exe\"", "release build copies from private Cargo target");
 assertIncludes(buildRustScriptSource, "Copy-Item -Force $outputExe $versionedOutputExe", "release build writes a versioned upload asset");
 assertIncludes(buildRustScriptSource, "Compress-Archive -LiteralPath $outputExe -DestinationPath $versionedOutputZip", "release build writes a versioned zip asset");
+assertIncludes(buildRustScriptSource, "Write-ReleaseLatestJson -Path $latestJsonPath", "release build writes latest.json");
+assertIncludes(buildRustScriptSource, "Assert-HttpsUrl $updateLatestJsonUrl", "release build validates custom update index URL");
+assertIncludes(buildReleaseInteractiveScriptSource, "Release Index Asset", "interactive release build prints latest.json asset");
+assertIncludes(buildReleaseInteractiveScriptSource, "latest.json index", "interactive release build completion mentions latest.json");
+assertIncludes(releaseVersionScriptSource, "Release index: private/build/rust/latest.json", "release version summary includes latest.json");
 assertIncludes(buildReleaseInteractiveScriptSource, "Write-ArtifactInfo -ArtifactPath $releaseAssetPath -Title \"Fallback EXE Asset\"", "interactive release build prints the fallback exe metadata");
 assertIncludes(buildReleaseInteractiveScriptSource, "\"Codex-Pro-Launcher-v$artifactVersion.exe\"", "interactive release build locates the versioned asset by executable metadata");
 assertIncludes(buildReleaseInteractiveScriptSource, "Write-ArtifactInfo -ArtifactPath $releaseZipAssetPath -Title \"Primary ZIP Asset\"", "interactive release build prints the primary zip metadata");

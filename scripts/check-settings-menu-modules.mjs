@@ -206,6 +206,13 @@ const expectedSections = [
       enableNativeThreadDragToChat: "enableTabDragToChat",
     },
   },
+  {
+    id: "update-check",
+    modulePath: ["src", "inject", "systems", "update-check", "settings.js"],
+    ownerSystem: "update-check",
+    requiresBind: true,
+    settingKeys: [],
+  },
 ];
 
 function pathFromParts(parts) {

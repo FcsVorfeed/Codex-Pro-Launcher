@@ -29,6 +29,9 @@ pub struct CodexProLocalConfig {
     /// 这一段是默认外观资源本机配置。
     /// Local appearance-resource config.
     pub appearance: CodexProLocalAppearanceConfig,
+    /// 这一段是自动更新相关本机配置。
+    /// Local update-check config.
+    pub update: CodexProLocalUpdateConfig,
     /// 这一段是会话归档本机配置。
     /// Local conversation-archive config.
     #[serde(rename = "conversationArchive")]
@@ -78,6 +81,16 @@ pub struct CodexProLocalAppearanceConfig {
     /// 这一段是默认背景壁纸 URL 列表。
     /// Default background wallpaper URL list.
     pub default_background_wallpaper_images: Vec<String>,
+}
+
+/// 这一段描述自动更新本机配置。
+/// Describes local update-check config.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct CodexProLocalUpdateConfig {
+    /// 这一段是 latest.json 更新索引地址。
+    /// latest.json update-index URL.
+    pub latest_json_url: String,
 }
 
 /// 这一段描述会话归档本机配置。

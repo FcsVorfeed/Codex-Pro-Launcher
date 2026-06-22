@@ -10,6 +10,7 @@
   const conversationArchiveRequestTimeoutMs = 180000;
   const petSyncRequestTimeoutMs = 60000;
   const todayTokenUsageRequestTimeoutMs = 10000;
+  const updateCheckRequestTimeoutMs = 12000;
 
   function getBinding() {
     // 这一段只读取 launcher 注入的受控绑定函数，缺失时让调用方走降级逻辑。
@@ -98,6 +99,12 @@
     // 这一段要求支持 Today token 聚合的新版桥协议，避免旧 worker 收到未知请求后等待超时。
     // Require the newer Today-token bridge protocol so older workers do not receive unsupported requests and time out.
     return Boolean(bridgeConfig?.protocolVersion >= 66 && getBinding() && bridgeConfig?.bridgeId && isHeartbeatFresh());
+  }
+
+  function supportsUpdateCheck() {
+    // 这一段要求支持更新检查的新版桥协议，避免旧 worker 收到未知请求后静默超时。
+    // Require the newer update-check bridge protocol so older workers do not receive unsupported requests and time out.
+    return Boolean(bridgeConfig?.protocolVersion >= 69 && getBinding() && bridgeConfig?.bridgeId && isHeartbeatFresh());
   }
 
   function isShortBridgeText(value, maxLength) {
@@ -328,6 +335,33 @@
     });
   }
 
+  function requestUpdateCheck(params = {}) {
+    // 这一段通过 launcher 查询发布索引，页面只接收结构化版本状态，不直接访问外网。
+    // Ask the launcher to query the release index so the page receives only structured update status.
+    if (!supportsUpdateCheck()) return Promise.resolve(null);
+    const force = params?.force === true;
+    const requestId = crypto.randomUUID();
+    return new Promise((resolve) => {
+      let timeoutId = 0;
+      const cleanup = () => {
+        window.clearTimeout(timeoutId);
+        window.removeEventListener(responseEventName, handleResponse);
+      };
+      function finish(value) {
+        cleanup();
+        resolve(value);
+      }
+      function handleResponse(event) {
+        const detail = event?.detail;
+        if (!detail || detail.requestId !== requestId || detail.type !== "update-check") return;
+        finish(detail.response || null);
+      }
+      window.addEventListener(responseEventName, handleResponse);
+      timeoutId = window.setTimeout(() => finish(null), updateCheckRequestTimeoutMs);
+      if (!send("update-check", { force, requestId })) finish(null);
+    });
+  }
+
   runtime.nativeBridge = {
     isAvailable: () => Boolean(getBinding() && bridgeConfig?.bridgeId && isHeartbeatFresh()),
     requestCloudSync,
@@ -335,6 +369,7 @@
     requestGitDiffSummary,
     requestPetSync,
     requestTodayTokenUsage,
+    requestUpdateCheck,
     sendExternalDiff,
     sendShortcut,
     supportsCloudSync,
@@ -343,5 +378,6 @@
     supportsGitDiffSummary,
     supportsPetSync,
     supportsTodayTokenUsage,
+    supportsUpdateCheck,
   };
 })();

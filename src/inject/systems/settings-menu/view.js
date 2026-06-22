@@ -17,6 +17,28 @@
   const nativeMenuEntryAttribute = "data-codex-pro-native-settings-entry";
   const nativeMenuEntrySelector = `[${nativeMenuEntryAttribute}]`;
 
+  function getSettingsTrigger() {
+    // 这一段统一查找当前设置入口，兼容顶部栏挂载和固定定位兜底两种模式。
+    // Find the current settings trigger across both top-bar docking and fixed-position fallback modes.
+    return document.getElementById(triggerHostId)?.querySelector(".codex-pro-settings-trigger")
+      || document.getElementById(rootId)?.querySelector(".codex-pro-settings-trigger")
+      || null;
+  }
+
+  function setUpdateCheckState(state = {}) {
+    // 这一段只负责把更新状态渲染成设置入口角标，不承担联网检查或版本比较。
+    // Render update state as a settings-entry badge only; network checks and version comparison live elsewhere.
+    const trigger = getSettingsTrigger();
+    if (!trigger) return;
+    const updateAvailable = state?.updateAvailable === true;
+    trigger.dataset.codexProUpdateAvailable = String(updateAvailable);
+    const title = updateAvailable
+      ? i18n.t("settings.updateCheck.triggerAvailable", { version: state.latestVersion || "" })
+      : i18n.t("settings.shell.trigger");
+    trigger.setAttribute("aria-label", title);
+    trigger.setAttribute("title", title);
+  }
+
   function getElementRect(element) {
     // 这一段统一读取 DOM 矩形，调用方只在元素存在时进入。
     // Read a DOMRect consistently; callers only pass existing elements.
@@ -264,6 +286,20 @@
           width: 16px;
           height: 16px;
           display: block;
+        }
+        #${rootId} .codex-pro-settings-trigger[data-codex-pro-update-available="true"]::after,
+        #${triggerHostId} .codex-pro-settings-trigger[data-codex-pro-update-available="true"]::after {
+          position: absolute;
+          top: 4px;
+          right: 4px;
+          width: 6px;
+          height: 6px;
+          box-sizing: border-box;
+          border: 1px solid var(--color-token-dropdown-background, rgba(45, 45, 45, .98));
+          border-radius: 999px;
+          background: color-mix(in srgb, var(--color-token-description-foreground, CanvasText) 72%, transparent);
+          content: "";
+          pointer-events: none;
         }
         #${rootId} .codex-pro-settings-backdrop {
           position: fixed;
@@ -851,6 +887,7 @@
     `;
     const trigger = root.querySelector(".codex-pro-settings-trigger");
     if (trigger) mountSettingsTrigger(root, trigger);
+    setUpdateCheckState(runtime.systemModules.updateCheck?.getState?.());
 
     return root;
   }
@@ -1188,6 +1225,7 @@
   settingsMenu.view = {
     bind,
     install,
+    setUpdateCheckState,
     uninstall,
   };
 })();

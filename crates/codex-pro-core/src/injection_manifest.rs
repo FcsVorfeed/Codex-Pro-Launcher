@@ -81,6 +81,10 @@ pub const SETTINGS_MENU_SECTION_MODULES: &[SettingsSectionModule] = &[
         owner_system: "native-thread-drag-to-chat",
         path: "src/inject/systems/native-thread-drag-to-chat/settings.js",
     },
+    SettingsSectionModule {
+        owner_system: "update-check",
+        path: "src/inject/systems/update-check/settings.js",
+    },
 ];
 
 /// 这一段是可注入功能系统清单。
@@ -167,6 +171,10 @@ pub const INJECTABLE_SYSTEMS: &[InjectableSystem] = &[
     InjectableSystem {
         name: "mouse-gestures",
         modules: &["src/inject/systems/mouse-gestures/index.js"],
+    },
+    InjectableSystem {
+        name: "update-check",
+        modules: &["src/inject/systems/update-check/index.js"],
     },
 ];
 

@@ -67,6 +67,10 @@ export const settingsMenuSectionModules = [
     ownerSystem: "native-thread-drag-to-chat",
     path: ["src", "inject", "systems", "native-thread-drag-to-chat", "settings.js"],
   },
+  {
+    ownerSystem: "update-check",
+    path: ["src", "inject", "systems", "update-check", "settings.js"],
+  },
 ];
 
 export const injectableSystems = [
@@ -174,6 +178,12 @@ export const injectableSystems = [
     name: "mouse-gestures",
     modules: [
       ["src", "inject", "systems", "mouse-gestures", "index.js"],
+    ],
+  },
+  {
+    name: "update-check",
+    modules: [
+      ["src", "inject", "systems", "update-check", "index.js"],
     ],
   },
 ];
