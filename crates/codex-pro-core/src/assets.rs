@@ -36,6 +36,9 @@ pub fn module_source(path: &str) -> Option<&'static str> {
         "src/inject/systems/settings-menu/sections/mouse-gestures.js" => {
             include_str!("../../../src/inject/systems/settings-menu/sections/mouse-gestures.js")
         }
+        "src/inject/systems/settings-menu/sections/pet-status.js" => {
+            include_str!("../../../src/inject/systems/settings-menu/sections/pet-status.js")
+        }
         "src/inject/systems/startup-sidebar/settings.js" => {
             include_str!("../../../src/inject/systems/startup-sidebar/settings.js")
         }
@@ -71,6 +74,9 @@ pub fn module_source(path: &str) -> Option<&'static str> {
         }
         "src/inject/systems/pet-sync/index.js" => {
             include_str!("../../../src/inject/systems/pet-sync/index.js")
+        }
+        "src/inject/systems/pet-event-sounds/index.js" => {
+            include_str!("../../../src/inject/systems/pet-event-sounds/index.js")
         }
         "src/inject/systems/conversation-archive/index.js" => {
             include_str!("../../../src/inject/systems/conversation-archive/index.js")

@@ -128,6 +128,40 @@ pub fn read_injection_script(
     Ok(parts.join("\n"))
 }
 
+/// 这一段拼接宠物浮窗最小注入脚本。
+/// Build the minimal pet-overlay injection script.
+pub fn read_pet_event_sound_overlay_script(
+    disabled_systems: &[String],
+    source_root: Option<&Path>,
+) -> anyhow::Result<Option<String>> {
+    // 这一段读取浮窗所需模块；硬屏蔽时不返回脚本。
+    // Read only overlay-required modules; return no script when the system is hard-disabled.
+    let module_paths =
+        crate::injection_manifest::build_pet_event_sound_overlay_module_paths(disabled_systems);
+    if module_paths.is_empty() {
+        return Ok(None);
+    }
+    let local_config = crate::local_config::load_local_config(source_root);
+    let frontend_local_config = serde_json::json!({
+        "sync": &local_config.sync,
+        "appearance": &local_config.appearance,
+        "conversationArchive": &local_config.conversation_archive,
+    });
+    let config_source = format!(
+        "window.__codexProHardDisabledSystems = {};\nwindow.__codexProLocalConfig = {};\nwindow.__codexProNativeBridgeConfig = window.__codexProNativeBridgeConfig || null;",
+        serde_json::to_string(disabled_systems)?,
+        serde_json::to_string(&frontend_local_config)?,
+    );
+    let mut parts = vec![format!(
+        "\n// Codex-Pro module: codex-pro-pet-overlay-runtime-config\n{config_source}"
+    )];
+    for path in module_paths {
+        let source = read_injection_module_source(path, source_root)?;
+        parts.push(format!("\n// Codex-Pro module: {path}\n{source}"));
+    }
+    Ok(Some(parts.join("\n")))
+}
+
 /// 这一段探测页面里是否已有可复用的 Codex-Pro runtime。
 /// Probe whether the page already has a reusable Codex-Pro runtime.
 pub async fn probe_existing_runtime(
@@ -331,6 +365,13 @@ pub async fn inject(
             )
             .await?;
         cleanup_auxiliary_codex_targets(debug_port, &target.id).await?;
+        inject_pet_event_sound_overlay_targets(
+            debug_port,
+            &target.id,
+            disabled_systems,
+            source_root,
+        )
+        .await?;
         Ok::<(), anyhow::Error>(())
     }
     .await;
@@ -411,6 +452,55 @@ async fn cleanup_auxiliary_codex_targets(
     Ok(())
 }
 
+/// 这一段把宠物状态音效的最小运行态注入到辅助宠物窗口。
+/// Inject the minimal pet-state sound runtime into auxiliary pet windows.
+async fn inject_pet_event_sound_overlay_targets(
+    debug_port: u16,
+    selected_target_id: &str,
+    disabled_systems: &[String],
+    source_root: Option<&Path>,
+) -> anyhow::Result<()> {
+    // 这一段先构造脚本；系统被硬屏蔽时直接跳过辅助窗口注入。
+    // Build the script first; skip auxiliary injection when the system is hard-disabled.
+    let Some(script) = read_pet_event_sound_overlay_script(disabled_systems, source_root)? else {
+        return Ok(());
+    };
+    let targets = match list_targets(debug_port).await {
+        Ok(targets) => targets,
+        Err(_) => return Ok(()),
+    };
+    for target in targets
+        .iter()
+        .filter(|target| target.id != selected_target_id && is_auxiliary_codex_page_target(target))
+    {
+        let Some(websocket_url) = target.web_socket_debugger_url.as_deref() else {
+            continue;
+        };
+        let Ok(mut client) = CdpClient::connect(websocket_url).await else {
+            continue;
+        };
+        let _ = client.send("Runtime.enable", json!({})).await;
+        let _ = client
+            .send(
+                "Page.addScriptToEvaluateOnNewDocument",
+                json!({ "source": script }),
+            )
+            .await;
+        let _ = client
+            .send(
+                "Runtime.evaluate",
+                json!({
+                    "expression": script,
+                    "awaitPromise": false,
+                    "allowUnsafeEvalBlockedByCSP": true,
+                }),
+            )
+            .await;
+        client.close().await;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -421,6 +511,20 @@ mod tests {
         assert!(script.contains("Codex-Pro module: src/inject/core/runtime.js"));
         assert!(script.contains("Codex-Pro module: src/inject/index.js"));
         assert!(script.contains("window.__codexProNativeBridgeConfig"));
+    }
+
+    #[test]
+    fn pet_overlay_script_contains_minimal_runtime_markers() {
+        let script = read_pet_event_sound_overlay_script(&[], None)
+            .unwrap()
+            .unwrap();
+        assert!(script.contains("Codex-Pro module: src/inject/systems/pet-event-sounds/index.js"));
+        assert!(!script.contains("Codex-Pro module: src/inject/systems/settings-menu/view.js"));
+        assert!(
+            read_pet_event_sound_overlay_script(&["pet-event-sounds".to_string()], None)
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]

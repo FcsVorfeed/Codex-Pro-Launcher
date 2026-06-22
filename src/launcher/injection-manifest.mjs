@@ -75,6 +75,10 @@ export const settingsMenuSectionModules = [
     ownerSystem: "update-check",
     path: ["src", "inject", "systems", "update-check", "settings.js"],
   },
+  {
+    ownerSystem: "pet-event-sounds",
+    path: ["src", "inject", "systems", "settings-menu", "sections", "pet-status.js"],
+  },
 ];
 
 export const injectableSystems = [
@@ -88,6 +92,12 @@ export const injectableSystems = [
     name: "pet-sync",
     modules: [
       ["src", "inject", "systems", "pet-sync", "index.js"],
+    ],
+  },
+  {
+    name: "pet-event-sounds",
+    modules: [
+      ["src", "inject", "systems", "pet-event-sounds", "index.js"],
     ],
   },
   {
@@ -271,6 +281,20 @@ export function buildInjectionModulePaths(disabledSystems) {
   return dedupeModulePaths([
     ...coreInjectionModulePaths,
     ...systemModulePaths,
+    ...finalInjectionModulePaths,
+  ]);
+}
+
+export function buildPetEventSoundOverlayModulePaths(disabledSystems) {
+  // 这一段为宠物浮窗构造最小注入包，只包含状态监听、设置读取和生命周期能力。
+  // Build the minimal pet-overlay injection bundle with only state listening, settings reads, and lifecycle support.
+  const disabledSet = new Set(disabledSystems);
+  if (disabledSet.has("pet-event-sounds")) return [];
+  return dedupeModulePaths([
+    ["src", "inject", "core", "runtime.js"],
+    ["src", "inject", "core", "lifecycle.js"],
+    ["src", "inject", "systems", "settings-menu", "settings.js"],
+    ["src", "inject", "systems", "pet-event-sounds", "index.js"],
     ...finalInjectionModulePaths,
   ]);
 }

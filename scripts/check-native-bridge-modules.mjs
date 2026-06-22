@@ -12,6 +12,7 @@ const workerCleanupPath = path.join(rootDir, "src", "launcher", "native-bridge",
 const diffHoverPreviewPath = path.join(rootDir, "src", "launcher", "native-bridge", "handlers", "diff-hover-preview.mjs");
 const mouseGesturesPath = path.join(rootDir, "src", "launcher", "native-bridge", "handlers", "mouse-gestures.mjs");
 const todayTokenUsagePath = path.join(rootDir, "src", "launcher", "native-bridge", "handlers", "today-token-usage.mjs");
+const petEventSoundPath = path.join(rootDir, "src", "launcher", "native-bridge", "handlers", "pet-event-sound.mjs");
 const packagePath = path.join(rootDir, "package.json");
 const buildLauncherScriptPath = path.join(rootDir, "scripts", "build-launcher-exe.ps1");
 const buildReleaseInteractiveScriptPath = path.join(rootDir, "scripts", "build-release-interactive.ps1");
@@ -25,6 +26,7 @@ const rustInjectionPath = path.join(rootDir, "crates", "codex-pro-core", "src", 
 const rustWorkerPath = path.join(rootDir, "crates", "codex-pro-bridge", "src", "worker.rs");
 const rustRouterPath = path.join(rootDir, "crates", "codex-pro-bridge", "src", "router.rs");
 const rustPetSyncPath = path.join(rootDir, "crates", "codex-pro-bridge", "src", "handlers", "pet_sync.rs");
+const rustPetEventSoundPath = path.join(rootDir, "crates", "codex-pro-bridge", "src", "handlers", "pet_event_sound.rs");
 const rustUpdateCheckPath = path.join(rootDir, "crates", "codex-pro-bridge", "src", "handlers", "update_check.rs");
 const rustConversationArchiveDir = path.join(rootDir, "crates", "codex-pro-bridge", "src", "handlers", "conversation_archive");
 const rustConversationArchivePaths = [
@@ -85,6 +87,7 @@ await Promise.all([
   assertFileExists(diffHoverPreviewPath),
   assertFileExists(mouseGesturesPath),
   assertFileExists(todayTokenUsagePath),
+  assertFileExists(petEventSoundPath),
   assertFileExists(buildLauncherScriptPath),
   assertFileExists(buildReleaseInteractiveScriptPath),
   assertFileExists(buildRustScriptPath),
@@ -97,6 +100,7 @@ await Promise.all([
   assertFileExists(rustWorkerPath),
   assertFileExists(rustRouterPath),
   assertFileExists(rustPetSyncPath),
+  assertFileExists(rustPetEventSoundPath),
   assertFileExists(rustUpdateCheckPath),
   ...rustConversationArchivePaths.map((filePath) => assertFileExists(filePath)),
   assertFileExists(rustLauncherMainPath),
@@ -111,6 +115,7 @@ const [
   workerCleanupSource,
   diffHoverPreviewSource,
   mouseGesturesSource,
+  petEventSoundSource,
   packageSource,
   buildLauncherScriptSource,
   buildReleaseInteractiveScriptSource,
@@ -124,6 +129,7 @@ const [
   rustWorkerSource,
   rustRouterSource,
   rustPetSyncSource,
+  rustPetEventSoundSource,
   rustUpdateCheckSource,
   rustLauncherMainSource,
 ] = await Promise.all([
@@ -135,6 +141,7 @@ const [
   readFile(workerCleanupPath, "utf8"),
   readFile(diffHoverPreviewPath, "utf8"),
   readFile(mouseGesturesPath, "utf8"),
+  readFile(petEventSoundPath, "utf8"),
   readFile(packagePath, "utf8"),
   readFile(buildLauncherScriptPath, "utf8"),
   readFile(buildReleaseInteractiveScriptPath, "utf8"),
@@ -148,6 +155,7 @@ const [
   readFile(rustWorkerPath, "utf8"),
   readFile(rustRouterPath, "utf8"),
   readFile(rustPetSyncPath, "utf8"),
+  readFile(rustPetEventSoundPath, "utf8"),
   readFile(rustUpdateCheckPath, "utf8"),
   readFile(rustLauncherMainPath, "utf8"),
 ]);
@@ -155,7 +163,7 @@ const conversationArchiveSource = (await Promise.all(
   rustConversationArchivePaths.map((filePath) => readFile(filePath, "utf8")),
 )).join("\n");
 
-assertIncludes(mainSource, "const nativeBridgeProtocolVersion = 68", "native bridge protocol version bump");
+assertIncludes(mainSource, "const nativeBridgeProtocolVersion = 70", "native bridge protocol version bump");
 assertIncludes(mainSource, "protocolVersion === nativeBridgeProtocolVersion", "native bridge reusable worker version gate");
 assertIncludes(mainSource, "workerHeartbeatAt", "native bridge worker heartbeat state");
 assertIncludes(mainSource, "isNativeBridgeStateHeartbeatFresh", "native bridge reusable worker heartbeat gate");
@@ -167,6 +175,9 @@ assertIncludes(mainSource, 'return await client.send("Runtime.evaluate"', "nativ
 assertIncludes(mainSource, 'from "./native-bridge/router.mjs"', "native bridge router import");
 assertIncludes(mainSource, 'from "./native-bridge/worker-cleanup.mjs"', "native bridge worker cleanup import");
 assertIncludes(injectionSource, "updatedAt: 0", "native bridge starts unavailable until worker heartbeat");
+assertIncludes(injectionSource, "buildPetEventSoundOverlayModulePaths", "pet event sound overlay manifest builder");
+assertIncludes(injectionSource, "readPetEventSoundOverlayScript", "pet event sound overlay script reader");
+assertIncludes(injectionSource, "injectPetEventSoundOverlayTargets", "pet event sound overlay target injection");
 assertIncludes(nativeBridgeCoreSource, "request.force = true", "conversation archive force flag bridge forwarding");
 assertIncludes(nativeBridgeCoreSource, '"reset"', "conversation archive reset action bridge forwarding");
 assertIncludes(nativeBridgeCoreSource, '"delete-device"', "conversation archive delete-device action bridge forwarding");
@@ -174,17 +185,33 @@ assertIncludes(nativeBridgeCoreSource, "request.deviceId = deviceId", "conversat
 assertIncludes(nativeBridgeCoreSource, "requestTodayTokenUsage", "Today token usage bridge request");
 assertIncludes(nativeBridgeCoreSource, "supportsUpdateCheck", "update-check bridge capability gate");
 assertIncludes(nativeBridgeCoreSource, "requestUpdateCheck", "update-check bridge request");
+assertIncludes(nativeBridgeCoreSource, "supportsPetEventSound", "pet event sound bridge capability gate");
+assertIncludes(nativeBridgeCoreSource, "requestPetEventSound", "pet event sound bridge request");
+assertIncludes(nativeBridgeCoreSource, "resolvePetEventSoundStateId", "pet event sound bridge should resolve state ids from settings");
+assertIncludes(nativeBridgeCoreSource, "params?.stateId", "pet event sound bridge should expose state id requests instead of raw paths");
+assertIncludes(nativeBridgeCoreSource, 'send("pet-event-sound", { requestId, stateId })', "pet event sound bridge should send only state ids to native");
+assertIncludes(nativeBridgeCoreSource, "protocolVersion >= 70", "pet event sound bridge protocol gate");
 assertIncludes(routerSource, '"today-token-usage"', "Today token usage router registration");
+assertIncludes(routerSource, '"pet-event-sound"', "pet event sound router registration");
 assertIncludes(rustRouterSource, "TodayTokenUsage", "Rust Today token usage router registration");
 assertIncludes(rustRouterSource, "UpdateCheck", "Rust update-check router registration");
+assertIncludes(rustRouterSource, "PetEventSound", "Rust pet event sound router registration");
 assertIncludes(rustRouterSource, '"update-check"', "Rust update-check request type");
+assertIncludes(rustRouterSource, '"pet-event-sound"', "Rust pet event sound request type");
 assertIncludes(rustRouterSource, '"updateCheckFailed"', "Rust update-check returns a neutral page error");
+assertIncludes(rustRouterSource, '"readFailed"', "Rust pet event sound returns a neutral page error");
 assertIncludes(rustUpdateCheckSource, "pub fn parse_update_check_request", "Rust update-check request parser export");
 assertIncludes(rustUpdateCheckSource, "pub async fn run_update_check_request", "Rust update-check runner export");
 assertIncludes(rustUpdateCheckSource, "latest.json", "Rust update-check uses release index");
 assertIncludes(rustUpdateCheckSource, "parser_rejects_page_supplied_url", "Rust update-check rejects page URL contract");
+assertIncludes(rustPetEventSoundSource, "pub fn parse_pet_event_sound_request", "Rust pet event sound request parser export");
+assertIncludes(rustPetEventSoundSource, "pub async fn run_pet_event_sound_request", "Rust pet event sound runner export");
+assertIncludes(rustPetEventSoundSource, "PET_EVENT_SOUND_MAX_BYTES", "Rust pet event sound file size cap");
+assertIncludes(rustPetEventSoundSource, "mime_from_path", "Rust pet event sound extension allow-list");
 assertIncludes(rustAssetsSource, "src/inject/systems/update-check/settings.js", "Rust core assets should embed update-check settings");
 assertIncludes(rustAssetsSource, "src/inject/systems/update-check/index.js", "Rust core assets should embed update-check runtime");
+assertIncludes(rustAssetsSource, "src/inject/systems/pet-event-sounds/index.js", "Rust core assets should embed pet event sound runtime");
+assertIncludes(rustAssetsSource, "src/inject/systems/settings-menu/sections/pet-status.js", "Rust core assets should embed pet status settings section");
 assertIncludes(nativeBridgeCoreSource, 'detail.type === "conversation-archive-progress"', "conversation archive progress event listener");
 assertIncludes(nativeBridgeCoreSource, "resetTimeout();", "conversation archive idle timeout refresh");
 assertIncludes(conversationArchiveSource, 'join("pending-device-deletes.json")', "Rust conversation archive pending device delete state path");
@@ -208,6 +235,7 @@ assertNotIncludes(routerSource, '"cloud-sync"', "legacy Node cloud-sync route");
 assertNotIncludes(routerSource, '"pet-sync"', "legacy Node pet-sync route");
 assertIncludes(routerSource, 'from "./handlers/diff-hover-preview.mjs"', "diff hover preview handler import");
 assertIncludes(routerSource, 'from "./handlers/mouse-gestures.mjs"', "mouse gestures handler import");
+assertIncludes(routerSource, 'from "./handlers/pet-event-sound.mjs"', "pet event sound handler import");
 assertIncludes(rustRouterSource, "dispatch_conversation_archive_request", "Rust conversation archive router dispatch");
 assertIncludes(rustRouterSource, '"conversation-archive-progress"', "Rust conversation archive progress response type");
 assertIncludes(diffHoverPreviewSource, "export function parseExternalDiffRequest", "external diff request parser export");
@@ -219,6 +247,11 @@ assertIncludes(diffHoverPreviewSource, "gitDiffSummaryCommandTimeoutMs", "git di
 assertIncludes(diffHoverPreviewSource, "child.stderr?.resume?.()", "git command stderr drain");
 assertIncludes(mouseGesturesSource, "export function parseShortcutRequest", "shortcut request parser export");
 assertIncludes(mouseGesturesSource, "export async function dispatchNativeShortcut", "shortcut dispatcher export");
+assertIncludes(petEventSoundSource, "export function parsePetEventSoundRequest", "pet event sound request parser export");
+assertIncludes(petEventSoundSource, "export async function readPetEventSound", "pet event sound reader export");
+assertIncludes(petEventSoundSource, "export async function resolvePetEventSoundPath", "pet event sound native resolver export");
+assertIncludes(petEventSoundSource, "petEventSoundMaxBytes", "pet event sound file size cap");
+assertIncludes(petEventSoundSource, "getPetEventSoundMime", "pet event sound extension allow-list");
 assertIncludes(rustPetSyncSource, "pub fn parse_pet_sync_request", "Rust pet-sync request parser export");
 assertIncludes(rustPetSyncSource, "pub async fn run_pet_sync_request", "Rust pet-sync runner export");
 assertIncludes(rustPetSyncSource, "fn push_body_matches_legacy_pet_sync_contract", "Rust pet-sync upload contract test");
@@ -376,6 +409,8 @@ assertIncludes(rustArgsSource, "return None;", "Rust args do not fall back to cw
 assertIncludes(rustInjectionSource, "source_root: Option<&Path>", "Rust injection accepts optional disk source root");
 assertIncludes(rustInjectionSource, "load_local_config(source_root)", "Rust injection reads local or embedded runtime config");
 assertIncludes(rustInjectionSource, "read_injection_module_source_from_disk", "Rust injection can read dev modules from disk");
+assertIncludes(rustInjectionSource, "read_pet_event_sound_overlay_script", "Rust injection builds pet event sound overlay script");
+assertIncludes(rustInjectionSource, "inject_pet_event_sound_overlay_targets", "Rust injection targets pet event sound overlay");
 assertIncludes(rustWorkerSource, "dev-runtime", "Rust worker uses dev-runtime copy directory");
 assertIncludes(rustWorkerSource, "prepare_dev_worker_executable", "Rust worker prepares a dev exe copy");
 assertIncludes(rustWorkerSource, "configure_worker_source_root", "Rust worker configures source root for private config discovery");
@@ -435,6 +470,10 @@ const {
   parseGitDiffSummaryRequest,
 } = await import("../src/launcher/native-bridge/handlers/diff-hover-preview.mjs");
 const { parseShortcutRequest } = await import("../src/launcher/native-bridge/handlers/mouse-gestures.mjs");
+const {
+  parsePetEventSoundRequest,
+  readPetEventSound,
+} = await import("../src/launcher/native-bridge/handlers/pet-event-sound.mjs");
 const {
   dispatchNativeBridgeRequest,
   parseNativeBridgeRequest,
@@ -584,6 +623,35 @@ assert(routedShortcutRequest.shortcut.description === "Ctrl+Shift+P", "router sh
 assert(parseShortcutRequest({ shortcut: "Ctrl+Alt+T" })?.type === "shortcut", "valid shortcut request should parse");
 assert(parseShortcutRequest({ shortcut: "Ctrl" }) === null, "shortcut parser should reject modifier-only shortcuts");
 assert(parseShortcutRequest({ shortcut: "Ctrl+K+P" }) === null, "shortcut parser should reject multi-key macros");
+assert(
+  parsePetEventSoundRequest({ stateId: "running-left", requestId: "req_sound" })?.type === "pet-event-sound",
+  "valid pet event sound request should parse",
+);
+assert(
+  parsePetEventSoundRequest({ path: "C:/Sounds/running.mp3", requestId: "req_sound" }) === null,
+  "pet event sound parser should reject raw path requests",
+);
+assert(
+  parsePetEventSoundRequest({ stateId: "running\nC:/secret.txt", requestId: "req_sound" }) === null,
+  "pet event sound parser should reject unsafe state ids",
+);
+assert(
+  (await readPetEventSound({ path: "//server/share/sound.wav", requestId: "req_sound" })).error === "invalidPath",
+  "pet event sound reader should reject UNC-style network paths",
+);
+const routedPetEventSoundRequest = parseNativeBridgeRequest(
+  {
+    name: bridge.bindingName,
+    payload: JSON.stringify({
+      bridgeId: bridge.bridgeId,
+      requestId: "req_sound",
+      stateId: "running",
+      type: "pet-event-sound",
+    }),
+  },
+  bridge,
+);
+assert(routedPetEventSoundRequest?.type === "pet-event-sound", "router should parse pet event sound requests");
 
 const shortcutDispatches = [];
 assert(

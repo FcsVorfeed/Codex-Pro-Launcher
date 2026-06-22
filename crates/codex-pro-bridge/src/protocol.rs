@@ -1,9 +1,9 @@
 use codex_pro_core::native_bridge::NativeBridgeConfig;
 use uuid::Uuid;
 
-/// 这一段定义 Rust native bridge 协议版本，高于当前 Node 版 68。
-/// Rust native bridge protocol version, higher than the current Node version 68.
-pub const NATIVE_BRIDGE_PROTOCOL_VERSION: u32 = 69;
+/// 这一段定义 Rust native bridge 协议版本。
+/// Rust native bridge protocol version.
+pub const NATIVE_BRIDGE_PROTOCOL_VERSION: u32 = 70;
 /// 这一段定义页面 binding 名称前缀。
 /// Page binding name prefix.
 pub const NATIVE_BRIDGE_BINDING_PREFIX: &str = "__codexProNativeBridge";

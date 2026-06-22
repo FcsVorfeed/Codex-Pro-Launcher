@@ -31,6 +31,18 @@
   const supportedUiLanguages = new Set(["zh-CN", "en-US", "ja-JP"]);
   const conversationArchiveSidebarPanelModes = new Set(["click", "hover"]);
   const usagePanelTodayTokenSources = new Set(["hidden", "observer", "official"]);
+  const petEventSoundStateIds = Object.freeze([
+    "idle",
+    "waving",
+    "running",
+    "waiting",
+    "failed",
+    "review",
+    "jumping",
+    "running-left",
+    "running-right",
+  ]);
+  const petEventSoundStateIdSet = new Set(petEventSoundStateIds);
 
   function normalizeLocalConfigString(value) {
     // 这一段只接受本机配置里的字符串值，避免数组或对象意外进入设置默认值。
@@ -82,12 +94,15 @@
     enableFileTreeFilter: true,
     enableMouseGestures: false,
     enableNativeThreadDragToChat: true,
+    enablePetEventSounds: false,
     enableStartupSidebar: false,
     enableTabDragToChat: true,
     enableUsagePanel: true,
     externalDiffToolPath: "",
     hiddenFileTreePatterns: "*.meta",
     mouseGestureShortcuts: defaultMouseGestureShortcuts,
+    petEventSoundCooldownMs: 350,
+    petEventSoundPaths: {},
     petSyncEndpoint: defaultPetSyncEndpoint,
     petSyncLastSyncAt: "",
     petSyncRevision: 0,
@@ -128,12 +143,15 @@
   const maxExternalDiffToolPathLength = 1000;
   const maxHiddenFileTreePatternsLength = 2000;
   const maxMouseGestureShortcutLength = 80;
+  const maxPetEventSoundCooldownMs = 5000;
+  const maxPetEventSoundPathLength = 1000;
   const maxUsagePanelPingEndpointLength = 500;
   const minBackgroundWallpaperIntervalSeconds = 5;
   const minBackgroundWallpaperOpacity = 0;
   const minChatWidthPixels = 560;
   const minContextUsageDecimalPlaces = 0;
   const minDiffHoverPreviewFontSize = 8;
+  const minPetEventSoundCooldownMs = 0;
   const minUsagePanelPingRefreshSeconds = 5;
   const minUsageRefreshSeconds = 10;
   const mouseGestureShortcutCodes = Object.keys(defaultMouseGestureShortcuts);
@@ -647,6 +665,42 @@
     return mouseGestureShortcutCodes.every((code) => left?.[code] === right?.[code]);
   }
 
+  function normalizePetEventSoundPath(value) {
+    // 这一段规范化单个宠物状态音效路径，拒绝控制字符并限制长度，避免异常路径进入原生桥。
+    // Normalize one pet-state sound path, rejecting control characters and bounding length before it reaches the native bridge.
+    const soundPath = String(value || "").trim();
+    if (!soundPath || soundPath.length > maxPetEventSoundPathLength || /[\0\r\n]/u.test(soundPath)) return "";
+    return soundPath;
+  }
+
+  function normalizePetEventSoundPaths(value) {
+    // 这一段只保留官方宠物状态 id 对应的路径，未知键不会写回设置。
+    // Keep only paths keyed by official pet-state ids so unknown keys are not persisted.
+    const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    const paths = {};
+    for (const stateId of petEventSoundStateIds) {
+      const soundPath = normalizePetEventSoundPath(source[stateId]);
+      if (soundPath) paths[stateId] = soundPath;
+    }
+    return paths;
+  }
+
+  function arePetEventSoundPathsEqual(left, right) {
+    // 这一段按固定状态顺序比较路径对象，避免对象引用差异导致保存按钮误报修改。
+    // Compare path objects in a fixed state order so object references do not falsely mark settings as modified.
+    const leftPaths = normalizePetEventSoundPaths(left);
+    const rightPaths = normalizePetEventSoundPaths(right);
+    return petEventSoundStateIds.every((stateId) => leftPaths[stateId] === rightPaths[stateId]);
+  }
+
+  function normalizePetEventSoundCooldownMs(value) {
+    // 这一段把宠物状态音效冷却时间限制在小范围内，防止动画状态抖动时频繁解码或播放。
+    // Bound the pet-state sound cooldown so animated-state jitter cannot trigger excessive decoding or playback.
+    const number = Number(value);
+    if (!Number.isFinite(number)) return defaultSettings.petEventSoundCooldownMs;
+    return Math.round(Math.min(maxPetEventSoundCooldownMs, Math.max(minPetEventSoundCooldownMs, number)));
+  }
+
   function readRawSettings() {
     // 这一段只读取本插件自己的本地配置，不接触任何账号或会话数据。
     // Read only this plugin's local settings without touching account or session data.
@@ -750,6 +804,10 @@
       normalize: (value) => normalizeEnabledSetting(value, defaultSettings.enableNativeThreadDragToChat),
     },
     {
+      key: "enablePetEventSounds",
+      normalize: (value) => normalizeEnabledSetting(value, defaultSettings.enablePetEventSounds),
+    },
+    {
       key: "enableStartupSidebar",
       normalize: (value) => normalizeEnabledSetting(value, defaultSettings.enableStartupSidebar),
     },
@@ -764,6 +822,8 @@
     { key: "externalDiffToolPath", normalize: normalizeExternalDiffToolPath },
     { key: "hiddenFileTreePatterns", normalize: normalizeHiddenFileTreePatterns },
     { key: "mouseGestureShortcuts", normalize: normalizeMouseGestureShortcuts, equals: areMouseGestureShortcutsEqual },
+    { key: "petEventSoundCooldownMs", normalize: normalizePetEventSoundCooldownMs },
+    { key: "petEventSoundPaths", normalize: normalizePetEventSoundPaths, equals: arePetEventSoundPathsEqual },
     { key: "petSyncEndpoint", normalize: normalizePetSyncEndpoint, preserveOnPartialSave: true },
     { key: "petSyncLastSyncAt", normalize: normalizePetSyncLastSyncAt, preserveOnPartialSave: true },
     { key: "petSyncRevision", normalize: normalizePetSyncRevision, preserveOnPartialSave: true },
@@ -843,6 +903,18 @@
     ]));
   }
 
+  function getPetEventSoundPathModifiedState(source, requireOwn) {
+    // 这一段保留每个宠物状态路径的细粒度修改标记，让事件卡片能独立显示蓝点。
+    // Keep fine-grained modified markers for each pet-state path so event cards can show their own dirty marker.
+    const sourceObject = getSourceObject(source);
+    const hasPaths = Object.hasOwn(sourceObject, "petEventSoundPaths");
+    const paths = normalizePetEventSoundPaths(sourceObject.petEventSoundPaths);
+    return Object.fromEntries(petEventSoundStateIds.map((stateId) => [
+      "petEventSoundPaths:" + stateId,
+      (!requireOwn || hasPaths) && paths[stateId] !== defaultSettings.petEventSoundPaths[stateId],
+    ]));
+  }
+
   function getModifiedStateFromSource(source, { requireOwn }) {
     // 这一段统一生成“已保存”和“草稿”的修改状态，差异只在是否要求 raw 中存在该字段。
     // Generate both saved and draft modified states in one path; they only differ by requiring raw ownership.
@@ -857,6 +929,7 @@
     return {
       ...modifiedState,
       ...getMouseGestureShortcutModifiedState(sourceObject, requireOwn),
+      ...getPetEventSoundPathModifiedState(sourceObject, requireOwn),
     };
   }
 
@@ -969,6 +1042,8 @@
     maxDiffHoverPreviewFontSize,
     maxExternalDiffToolPathLength,
     maxHiddenFileTreePatternsLength,
+    maxPetEventSoundCooldownMs,
+    maxPetEventSoundPathLength,
     maxUsagePanelPingEndpointLength,
     maxContextUsageDecimalPlaces,
     minBackgroundWallpaperIntervalSeconds,
@@ -976,10 +1051,13 @@
     minChatWidthPixels,
     minContextUsageDecimalPlaces,
     minDiffHoverPreviewFontSize,
+    minPetEventSoundCooldownMs,
     minUsagePanelPingRefreshSeconds,
     minUsageRefreshSeconds,
     mouseGestureShortcutCodes,
     normalizeMouseGestureShortcut,
+    petEventSoundStateIds,
+    petEventSoundStateIdSet,
     saveSettings,
     settingFields: publicSettingFields,
     subscribe,

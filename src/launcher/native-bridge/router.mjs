@@ -16,6 +16,11 @@ import {
   parseTodayTokenUsageRequest,
   readTodayTokenUsage,
 } from "./handlers/today-token-usage.mjs";
+import {
+  parsePetEventSoundRequest,
+  readPetEventSound,
+  resolvePetEventSoundPath,
+} from "./handlers/pet-event-sound.mjs";
 
 const defaultNativeBridgeMaxPayloadLength = 24_000;
 
@@ -28,6 +33,7 @@ function createParserMap() {
     ["git-diff-summary", parseGitDiffSummaryRequest],
     ["conversation-archive", parseConversationArchiveRequest],
     ["today-token-usage", parseTodayTokenUsageRequest],
+    ["pet-event-sound", parsePetEventSoundRequest],
   ]);
 }
 
@@ -40,6 +46,7 @@ function createDispatchMap() {
     ["git-diff-summary", dispatchGitDiffSummaryRequest],
     ["conversation-archive", dispatchConversationArchiveRequest],
     ["today-token-usage", dispatchTodayTokenUsageRequest],
+    ["pet-event-sound", dispatchPetEventSoundRequest],
   ]);
 }
 
@@ -165,6 +172,22 @@ function dispatchTodayTokenUsageRequest(client, nativeBridge, request, options) 
       status: 0,
     }),
   );
+}
+
+function dispatchPetEventSoundRequest(client, nativeBridge, request, options) {
+  // 这一段先从当前设置解析状态音效路径，再读取文件；失败时使用中性错误，不输出本机路径。
+  // Resolve the state sound path from current settings before reading; failures use a neutral error without logging the local path.
+  resolvePetEventSoundPath(client, nativeBridge, request.stateId)
+    .then((soundPath) => (soundPath
+      ? readPetEventSound({ path: soundPath, requestId: request.requestId, type: request.type })
+      : { bytes: 0, error: "unavailable", ok: false }))
+    .then((response) => sendResponse(client, nativeBridge, request, response, options))
+    .catch(() => sendResponse(client, nativeBridge, request, {
+      bytes: 0,
+      error: "readFailed",
+      ok: false,
+    }, options));
+  return true;
 }
 
 export function dispatchNativeBridgeRequest(client, nativeBridge, request, options = {}) {

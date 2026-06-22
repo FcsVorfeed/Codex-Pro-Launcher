@@ -89,6 +89,10 @@ pub const SETTINGS_MENU_SECTION_MODULES: &[SettingsSectionModule] = &[
         owner_system: "update-check",
         path: "src/inject/systems/update-check/settings.js",
     },
+    SettingsSectionModule {
+        owner_system: "pet-event-sounds",
+        path: "src/inject/systems/settings-menu/sections/pet-status.js",
+    },
 ];
 
 /// 这一段是可注入功能系统清单。
@@ -101,6 +105,10 @@ pub const INJECTABLE_SYSTEMS: &[InjectableSystem] = &[
     InjectableSystem {
         name: "pet-sync",
         modules: &["src/inject/systems/pet-sync/index.js"],
+    },
+    InjectableSystem {
+        name: "pet-event-sounds",
+        modules: &["src/inject/systems/pet-event-sounds/index.js"],
     },
     InjectableSystem {
         name: "conversation-archive",
@@ -236,6 +244,36 @@ pub fn build_injection_module_paths(disabled_systems: &[String]) -> Vec<&'static
         .collect()
 }
 
+/// 这一段构造宠物浮窗的最小注入模块顺序。
+/// Build the minimal injection module order for the pet overlay.
+pub fn build_pet_event_sound_overlay_module_paths(
+    disabled_systems: &[String],
+) -> Vec<&'static str> {
+    // 这一段尊重硬屏蔽系统；禁用宠物状态音效时不向浮窗注入最小运行态。
+    // Respect hard-disabled systems; when pet-state sounds are disabled, do not inject the minimal overlay runtime.
+    if disabled_systems
+        .iter()
+        .any(|system| system.as_str() == "pet-event-sounds")
+    {
+        return Vec::new();
+    }
+
+    // 这一段只保留浮窗播放所需模块，避免把完整设置 UI 或主窗口功能注入到辅助窗口。
+    // Keep only modules needed for overlay playback so the full settings UI and main-window systems are not injected into the auxiliary window.
+    let modules = [
+        "src/inject/core/runtime.js",
+        "src/inject/core/lifecycle.js",
+        "src/inject/systems/settings-menu/settings.js",
+        "src/inject/systems/pet-event-sounds/index.js",
+        "src/inject/index.js",
+    ];
+    let mut seen = std::collections::HashSet::new();
+    modules
+        .into_iter()
+        .filter(|module| seen.insert(*module))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -245,5 +283,16 @@ mod tests {
         let modules = build_injection_module_paths(&["usage-panel".to_string()]);
         assert!(!modules.contains(&"src/inject/systems/usage-panel/index.js"));
         assert!(!modules.contains(&"src/inject/systems/usage-panel/settings.js"));
+    }
+
+    #[test]
+    fn pet_overlay_bundle_is_minimal_and_disableable() {
+        let modules = build_pet_event_sound_overlay_module_paths(&[]);
+        assert!(modules.contains(&"src/inject/systems/pet-event-sounds/index.js"));
+        assert!(!modules.contains(&"src/inject/systems/settings-menu/view.js"));
+        assert!(
+            build_pet_event_sound_overlay_module_paths(&["pet-event-sounds".to_string()])
+                .is_empty()
+        );
     }
 }

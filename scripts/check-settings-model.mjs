@@ -105,6 +105,28 @@ assert(
   settings.defaultSettings.chatWidthPixels === 1100,
   "chat width should keep a conservative custom seed width",
 );
+assert(
+  settings.defaultSettings.enablePetEventSounds === false,
+  "pet event sounds should default to disabled",
+);
+assert(
+  settings.defaultSettings.petEventSoundCooldownMs === 350,
+  "pet event sound cooldown should default to 350 ms",
+);
+assert(
+  JSON.stringify(settings.petEventSoundStateIds) === JSON.stringify([
+    "idle",
+    "waving",
+    "running",
+    "waiting",
+    "failed",
+    "review",
+    "jumping",
+    "running-left",
+    "running-right",
+  ]),
+  "pet event sound states should expose the official avatar animation states",
+);
 
 storage.set("codex-pro:settings", JSON.stringify({ chatWidthPixels: 1320 }));
 assert(settings.getSettings().chatWidthMode === "custom", "legacy custom chat width should migrate to custom mode");
@@ -144,6 +166,13 @@ const savedSettings = settings.saveSettings({
   enableStartupSidebar: true,
   enableUsagePanel: false,
   hiddenFileTreePatterns: "dist/**",
+  enablePetEventSounds: true,
+  petEventSoundCooldownMs: 600,
+  petEventSoundPaths: {
+    running: "C:/Sounds/running.mp3",
+    waiting: "C:/Sounds/waiting.wav",
+    unknown: "C:/Sounds/unknown.mp3",
+  },
   petSyncEndpoint: "https://example.com/pet-sync",
   petSyncLastSyncAt: "2026-06-10T00:00:00.000Z",
   petSyncRevision: 2,
@@ -177,6 +206,11 @@ assert(savedSettings.uiLanguage === "zh-CN", "saveSettings should normalize chan
 assert(savedSettings.chatWidthMode === "custom", "saveSettings should normalize changed chat width mode");
 assert(savedSettings.chatWidthPixels === 1320, "saveSettings should normalize changed chat width");
 assert(savedSettings.usageRefreshSeconds === 15, "saveSettings should normalize changed numeric fields");
+assert(savedSettings.enablePetEventSounds === true, "saveSettings should allow pet event sounds to turn on");
+assert(savedSettings.petEventSoundCooldownMs === 600, "saveSettings should normalize pet event sound cooldown");
+assert(savedSettings.petEventSoundPaths.running === "C:/Sounds/running.mp3", "saveSettings should keep configured pet event sound paths");
+assert(savedSettings.petEventSoundPaths.waiting === "C:/Sounds/waiting.wav", "saveSettings should keep multiple pet event sound paths");
+assert(!Object.hasOwn(savedSettings.petEventSoundPaths, "unknown"), "saveSettings should drop unknown pet event sound states");
 
 rawSettings = readStoredSettings();
 assert(rawSettings.enableUsagePanel === false, "changed boolean field should be stored as override");
@@ -199,6 +233,10 @@ assert(rawSettings.chatWidthMode === "custom", "changed chat width mode should b
 assert(rawSettings.chatWidthPixels === 1320, "changed chat width should be stored as override");
 assert(rawSettings.usageRefreshSeconds === 15, "changed numeric field should be stored as override");
 assert(rawSettings.hiddenFileTreePatterns === "dist/**", "changed textarea field should be stored as override");
+assert(rawSettings.enablePetEventSounds === true, "changed pet event sounds switch should be stored as override");
+assert(rawSettings.petEventSoundCooldownMs === 600, "changed pet event sound cooldown should be stored as override");
+assert(rawSettings.petEventSoundPaths.running === "C:/Sounds/running.mp3", "changed pet event sound path should be stored as override");
+assert(!Object.hasOwn(rawSettings.petEventSoundPaths, "unknown"), "unknown pet event sound path keys should not be stored");
 
 settings.saveSettings({
   cloudSyncLastSyncAt: "2026-06-10T00:00:30.000Z",
@@ -235,6 +273,9 @@ assert(rawSettings.enableChatWidthResizer === false, "partial metadata save shou
 assert(rawSettings.enableStartupSidebar === true, "partial metadata save should preserve startup sidebar switch");
 assert(rawSettings.enableUsagePanel === false, "partial metadata save should preserve ordinary boolean overrides");
 assert(rawSettings.hiddenFileTreePatterns === "dist/**", "partial metadata save should preserve ordinary textarea overrides");
+assert(rawSettings.enablePetEventSounds === true, "partial metadata save should preserve pet event sounds switch");
+assert(rawSettings.petEventSoundCooldownMs === 600, "partial metadata save should preserve pet event sound cooldown");
+assert(rawSettings.petEventSoundPaths.running === "C:/Sounds/running.mp3", "partial metadata save should preserve pet event sound paths");
 assert(rawSettings.conversationArchiveSidebarDirectoryPanelMode === "hover", "partial metadata save should preserve left directory panel mode");
 assert(rawSettings.showUsageInLowerLeftPanel === true, "partial metadata save should preserve lower-left usage switch");
 assert(rawSettings.showUsagePanelPing === false, "partial metadata save should preserve Ping switch");

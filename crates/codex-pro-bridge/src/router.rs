@@ -1,6 +1,6 @@
 use crate::handlers::{
-    cloud_sync, conversation_archive, diff_hover_preview, mouse_gestures, pet_sync,
-    today_token_usage, update_check,
+    cloud_sync, conversation_archive, diff_hover_preview, mouse_gestures, pet_event_sound,
+    pet_sync, today_token_usage, update_check,
 };
 use crate::protocol::{NATIVE_BRIDGE_MAX_PAYLOAD_LENGTH, NATIVE_BRIDGE_RESPONSE_EVENT_NAME};
 use codex_pro_core::cdp::CdpClient;
@@ -27,6 +27,9 @@ pub enum BridgeRequest {
     /// 这一段是宠物同步请求。
     /// Pet sync request.
     PetSync(pet_sync::PetSyncRequest),
+    /// 这一段是宠物状态音效读取请求。
+    /// Pet-state sound read request.
+    PetEventSound(pet_event_sound::PetEventSoundRequest),
     /// 这一段是会话归档请求。
     /// Conversation archive request.
     ConversationArchive(conversation_archive::ConversationArchiveRequest),
@@ -45,6 +48,9 @@ pub enum BridgeWorkerEvent {
     /// 这一段是需要在页面执行的快捷键请求。
     /// Shortcut request to run on the page.
     Shortcut(mouse_gestures::ShortcutRequest),
+    /// 这一段是需要在页面设置里解析路径的宠物状态音效请求。
+    /// Pet-state sound request that needs path resolution from page settings.
+    PetEventSound(pet_event_sound::PetEventSoundRequest),
     /// 这一段是需要派发给页面的响应事件。
     /// Response event to dispatch to the page.
     Response {
@@ -91,6 +97,9 @@ pub fn parse_native_bridge_request(
             .map(BridgeRequest::GitDiffSummary),
         "cloud-sync" => cloud_sync::parse_cloud_sync_request(&value).map(BridgeRequest::CloudSync),
         "pet-sync" => pet_sync::parse_pet_sync_request(&value).map(BridgeRequest::PetSync),
+        "pet-event-sound" => {
+            pet_event_sound::parse_pet_event_sound_request(&value).map(BridgeRequest::PetEventSound)
+        }
         "conversation-archive" => conversation_archive::parse_conversation_archive_request(&value)
             .map(BridgeRequest::ConversationArchive),
         "today-token-usage" => today_token_usage::parse_today_token_usage_request(&value)
@@ -143,6 +152,9 @@ pub fn dispatch_native_bridge_request(events: BridgeWorkerEventSender, request: 
                 send_response(events, request_id, "pet-sync", response);
             });
         }
+        BridgeRequest::PetEventSound(request) => {
+            let _ = events.send(BridgeWorkerEvent::PetEventSound(request));
+        }
         BridgeRequest::ConversationArchive(request) => {
             dispatch_conversation_archive_request(events, request);
         }
@@ -186,6 +198,23 @@ pub async fn handle_bridge_worker_event(
     match event {
         BridgeWorkerEvent::Shortcut(request) => {
             let _ = mouse_gestures::dispatch_native_shortcut(client, &request).await;
+        }
+        BridgeWorkerEvent::PetEventSound(request) => {
+            let request_id = request.request_id.clone();
+            // 这一段返回中性错误码，不把本机路径或文件系统细节暴露给页面。
+            // Return a neutral error code without exposing local paths or filesystem details to the page.
+            let response =
+                pet_event_sound::run_pet_event_sound_request(client, native_bridge, &request)
+                    .await
+                    .unwrap_or_else(|_| json!({ "bytes": 0, "error": "readFailed", "ok": false }));
+            let _ = send_response_value(
+                client,
+                native_bridge,
+                &request_id,
+                "pet-event-sound",
+                response,
+            )
+            .await;
         }
         BridgeWorkerEvent::Response {
             request_id,

@@ -9,6 +9,7 @@
   const cloudSyncRequestTimeoutMs = 20000;
   const conversationArchiveRequestTimeoutMs = 180000;
   const petSyncRequestTimeoutMs = 60000;
+  const petEventSoundRequestTimeoutMs = 10000;
   const todayTokenUsageRequestTimeoutMs = 10000;
   const updateCheckRequestTimeoutMs = 12000;
 
@@ -105,6 +106,12 @@
     // 这一段要求支持更新检查的新版桥协议，避免旧 worker 收到未知请求后静默超时。
     // Require the newer update-check bridge protocol so older workers do not receive unsupported requests and time out.
     return Boolean(bridgeConfig?.protocolVersion >= 69 && getBinding() && bridgeConfig?.bridgeId && isHeartbeatFresh());
+  }
+
+  function supportsPetEventSound() {
+    // 这一段要求支持宠物状态音效读取的新版桥协议，避免旧 worker 收到本机路径请求后无响应。
+    // Require the newer pet-state sound bridge protocol so older workers do not receive local-path requests without replying.
+    return Boolean(bridgeConfig?.protocolVersion >= 70 && getBinding() && bridgeConfig?.bridgeId && isHeartbeatFresh());
   }
 
   function isShortBridgeText(value, maxLength) {
@@ -362,11 +369,56 @@
     });
   }
 
+  function resolvePetEventSoundStateId(params) {
+    // 这一段把公开调用面收敛为官方状态 id，不接受任意本机路径参数。
+    // Narrow the public call surface to an official state id and do not accept arbitrary local path parameters.
+    const settingsApi = runtime.systemModules.settingsMenu?.settings;
+    const stateId = String(params?.stateId || "").trim();
+    const stateIds = Array.isArray(settingsApi?.petEventSoundStateIds) ? settingsApi.petEventSoundStateIds : [];
+    if (!stateIds.includes(stateId)) return "";
+    const settings = settingsApi?.getSettings?.() || {};
+    if (settings.enablePetEventSounds !== true) return "";
+    const paths = settings.petEventSoundPaths && typeof settings.petEventSoundPaths === "object"
+      ? settings.petEventSoundPaths
+      : {};
+    const path = String(paths[stateId] || "").trim();
+    return isShortBridgeText(path, 1000) ? stateId : "";
+  }
+
+  function requestPetEventSound(params) {
+    // 这一段通过 launcher 读取已配置状态的本机音频文件，不让调用方直接传任意路径。
+    // Ask the launcher to read the local audio file for a configured state without letting callers pass arbitrary paths.
+    if (!supportsPetEventSound()) return Promise.resolve(null);
+    const stateId = resolvePetEventSoundStateId(params);
+    if (!stateId) return Promise.resolve(null);
+    const requestId = crypto.randomUUID();
+    return new Promise((resolve) => {
+      let timeoutId = 0;
+      const cleanup = () => {
+        window.clearTimeout(timeoutId);
+        window.removeEventListener(responseEventName, handleResponse);
+      };
+      function finish(value) {
+        cleanup();
+        resolve(value);
+      }
+      function handleResponse(event) {
+        const detail = event?.detail;
+        if (!detail || detail.requestId !== requestId || detail.type !== "pet-event-sound") return;
+        finish(detail.response || null);
+      }
+      window.addEventListener(responseEventName, handleResponse);
+      timeoutId = window.setTimeout(() => finish(null), petEventSoundRequestTimeoutMs);
+      if (!send("pet-event-sound", { requestId, stateId })) finish(null);
+    });
+  }
+
   runtime.nativeBridge = {
     isAvailable: () => Boolean(getBinding() && bridgeConfig?.bridgeId && isHeartbeatFresh()),
     requestCloudSync,
     requestConversationArchive,
     requestGitDiffSummary,
+    requestPetEventSound,
     requestPetSync,
     requestTodayTokenUsage,
     requestUpdateCheck,
@@ -376,6 +428,7 @@
     supportsConversationArchive,
     supportsExternalDiff,
     supportsGitDiffSummary,
+    supportsPetEventSound,
     supportsPetSync,
     supportsTodayTokenUsage,
     supportsUpdateCheck,

@@ -3,6 +3,7 @@ import path from "node:path";
 import vm from "node:vm";
 
 import {
+  buildPetEventSoundOverlayModulePaths,
   buildInjectionModulePaths,
   coreInjectionModulePaths,
   settingsMenuBuiltinSectionModules,
@@ -221,6 +222,13 @@ const expectedSections = [
     requiresBind: true,
     settingKeys: [],
   },
+  {
+    id: "pet-status",
+    modulePath: ["src", "inject", "systems", "settings-menu", "sections", "pet-status.js"],
+    ownerSystem: "pet-event-sounds",
+    requiresBind: true,
+    settingKeys: ["enablePetEventSounds", "petEventSoundCooldownMs", "petEventSoundPaths"],
+  },
 ];
 
 function pathFromParts(parts) {
@@ -292,14 +300,28 @@ function createSettingsApi() {
     maxDiffHoverPreviewFontSize: 32,
     maxExternalDiffToolPathLength: 1000,
     maxChatWidthPixels: 2200,
+    maxPetEventSoundCooldownMs: 5000,
+    maxPetEventSoundPathLength: 1000,
     minBackgroundWallpaperIntervalSeconds: 5,
     minBackgroundWallpaperOpacity: 0,
     minChatWidthPixels: 560,
     minDiffHoverPreviewFontSize: 8,
+    minPetEventSoundCooldownMs: 0,
     minUsageRefreshSeconds: 5,
     minContextUsageDecimalPlaces: 0,
     maxContextUsageDecimalPlaces: 2,
     maxHiddenFileTreePatternsLength: 5000,
+    petEventSoundStateIds: [
+      "idle",
+      "waving",
+      "running",
+      "waiting",
+      "failed",
+      "review",
+      "jumping",
+      "running-left",
+      "running-right",
+    ],
   };
 }
 
@@ -796,6 +818,7 @@ const rustCloudSyncSource = await readFile(rustCloudSyncPath, "utf8");
 const rustSyncLicenseSource = await readFile(rustSyncLicensePath, "utf8");
 const requiredBindingGuard = viewSource.match(/if\s*\(\s*([\s\S]*?)\s*\)\s*\{\s*return;\s*\}\s*\n\s*\/\/ 这一段默认打开/u)?.[1] || "";
 const injectionModulePaths = buildInjectionModulePaths([]).map(pathId);
+const petOverlayModulePaths = buildPetEventSoundOverlayModulePaths([]).map(pathId);
 const disabledSettingsMenuPaths = buildInjectionModulePaths(["settings-menu"]).map(pathId);
 const coreInjectionModulePathIds = coreInjectionModulePaths.map(pathId);
 const builtinSectionModulePaths = settingsMenuBuiltinSectionModules.map((module) => pathId(module.path));
@@ -821,6 +844,16 @@ assertBeforeInList(injectionModulePaths, formBindingEntry, viewEntry);
 assert(
   !injectionModulePaths.includes(pathId(["src", "inject", "systems", "settings-menu", "sections", "simple-sections.js"])),
   "settings-menu must not preload all simple sections from a central simple-sections.js file",
+);
+assert(
+  petOverlayModulePaths.includes(pathId(["src", "inject", "systems", "pet-event-sounds", "index.js"])) &&
+    petOverlayModulePaths.includes(pathId(["src", "inject", "systems", "settings-menu", "settings.js"])) &&
+    !petOverlayModulePaths.includes(pathId(["src", "inject", "systems", "settings-menu", "view.js"])),
+  "pet event sound overlay bundle must stay minimal and avoid full settings UI",
+);
+assert(
+  buildPetEventSoundOverlayModulePaths(["pet-event-sounds"]).length === 0,
+  "pet event sound overlay bundle must be skipped when the system is disabled",
 );
 
 for (const section of expectedBuiltinSections) {
@@ -1173,6 +1206,14 @@ for (const expectedSection of [...expectedBuiltinSections, ...expectedSections])
       assert(
         html.includes('data-codex-pro-setting-key="mouseGestureShortcuts:'),
         `${expectedSection.id} missing mouse gesture shortcut data keys`,
+      );
+      continue;
+    }
+    if (key === "petEventSoundPaths") {
+      assert(
+        html.includes('data-codex-pro-setting-key="petEventSoundPaths:running"') &&
+          html.includes('data-codex-pro-pet-event-sound-path="running"'),
+        `${expectedSection.id} missing pet event sound path data keys`,
       );
       continue;
     }

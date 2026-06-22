@@ -12,7 +12,7 @@ import { runNativeBridgeWorkerCleanup } from "./native-bridge/worker-cleanup.mjs
 import { launcherPath, rootDir } from "./paths.mjs";
 
 const nativeBridgeBindingName = "__codexProNativeBridge";
-const nativeBridgeProtocolVersion = 68;
+const nativeBridgeProtocolVersion = 70;
 const nativeBridgeResponseEventName = "codex-pro:native-bridge-response";
 const nativeBridgeMaxPayloadLength = 24_000;
 const nativeBridgeHeartbeatMs = 2000;
