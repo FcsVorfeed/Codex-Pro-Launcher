@@ -89,6 +89,7 @@ $repositoryUrl = Get-WorkspaceRepositoryUrl
 $outputExe = Join-Path $outputDir "Codex-Pro-Launcher.exe"
 $versionedOutputZip = Join-Path $outputDir "Codex-Pro-Launcher-v$releaseVersion-windows.zip"
 $latestJsonPath = Join-Path $outputDir "latest.json"
+$releaseNotesPath = Join-Path $outputDir "release-notes-v$releaseVersion.md"
 $targetDir = Join-Path $repoRoot "private\target"
 $releaseConfigEnvName = "CODEX_PRO_RELEASE_CONFIG_JSON"
 
@@ -182,6 +183,21 @@ function Get-GitHubReleaseAssetUrl {
   return "$RepositoryUrl/releases/download/$ReleaseTag/$encodedAssetName"
 }
 
+# 这一段读取自动生成的发布说明，供 latest.json 和 GitHub Release 复用同一份正文。
+# Read generated release notes so latest.json and GitHub Release can reuse one body.
+function Get-ReleaseNotesBody {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path
+  )
+
+  if (-not (Test-Path -LiteralPath $Path)) {
+    throw "release notes file does not exist: $Path"
+  }
+
+  return (Get-Content -LiteralPath $Path -Raw -Encoding UTF8).Trim()
+}
+
 # 这一段把发布产物索引写成 Codex++ 同款固定文件，供启动器自动检查更新。
 # Write a Codex++-style release index so the launcher can auto-check updates.
 function Write-ReleaseLatestJson {
@@ -196,7 +212,10 @@ function Write-ReleaseLatestJson {
     [string]$RepositoryUrl,
 
     [Parameter(Mandatory = $true)]
-    [string[]]$AssetPaths
+    [string[]]$AssetPaths,
+
+    [Parameter(Mandatory = $true)]
+    [string]$ReleaseNotesPath
   )
 
   $releaseTag = "v$Version"
@@ -208,11 +227,12 @@ function Write-ReleaseLatestJson {
       url = Get-GitHubReleaseAssetUrl -RepositoryUrl $RepositoryUrl -ReleaseTag $releaseTag -AssetName $assetName
     }
   }
+  $releaseBody = Get-ReleaseNotesBody -Path $ReleaseNotesPath
 
   $payload = [ordered]@{
     version = $Version
     url = "$RepositoryUrl/releases/tag/$releaseTag"
-    body = ""
+    body = $releaseBody
     assets = $assets
   }
   Write-Utf8NoBomText -Path $Path -Text (($payload | ConvertTo-Json -Depth 8) + "`n")
@@ -323,7 +343,12 @@ if (Test-Path -LiteralPath $versionedOutputZip) {
   Remove-Item -LiteralPath $versionedOutputZip -Force
 }
 Compress-Archive -LiteralPath $outputExe -DestinationPath $versionedOutputZip
-Write-ReleaseLatestJson -Path $latestJsonPath -Version $releaseVersion -RepositoryUrl $repositoryUrl -AssetPaths @($versionedOutputZip)
+
+# 这一段生成发布说明，并把同一份正文写入 latest.json，避免 GitHub Release 和更新索引分裂。
+# Generate release notes and write the same body into latest.json so GitHub Release and update index do not drift.
+node (Join-Path $repoRoot "scripts\generate-release-notes.mjs") --version $releaseVersion --output $releaseNotesPath
+Assert-LastExitCode "node scripts\generate-release-notes.mjs"
+Write-ReleaseLatestJson -Path $latestJsonPath -Version $releaseVersion -RepositoryUrl $repositoryUrl -AssetPaths @($versionedOutputZip) -ReleaseNotesPath $releaseNotesPath
 
 # 这一段输出体积并提示验收风险。
 # Print size and warn when it exceeds the acceptance target.
@@ -332,6 +357,7 @@ $sizeMb = [Math]::Round($sizeBytes / 1MB, 2)
 Write-Host "Rust launcher: $outputExe"
 Write-Host "Release ZIP asset: $versionedOutputZip"
 Write-Host "Release index: $latestJsonPath"
+Write-Host "Release notes: $releaseNotesPath"
 Write-Host "Version: $releaseVersion"
 Write-Host "Size: $sizeMb MB"
 if ($sizeBytes -gt (15MB)) {

@@ -19,6 +19,7 @@ const buildLauncherScriptPath = path.join(rootDir, "scripts", "build-launcher-ex
 const buildReleaseInteractiveScriptPath = path.join(rootDir, "scripts", "build-release-interactive.ps1");
 const buildRustScriptPath = path.join(rootDir, "scripts", "build-rust-single-exe.ps1");
 const injectDevScriptPath = path.join(rootDir, "scripts", "inject-dev.ps1");
+const releaseNotesScriptPath = path.join(rootDir, "scripts", "generate-release-notes.mjs");
 const releaseVersionScriptPath = path.join(rootDir, "scripts", "prepare-release-version.mjs");
 const rustArgsPath = path.join(rootDir, "crates", "codex-pro-core", "src", "args.rs");
 const rustAssetsPath = path.join(rootDir, "crates", "codex-pro-core", "src", "assets.rs");
@@ -126,6 +127,7 @@ const [
   buildReleaseInteractiveScriptSource,
   buildRustScriptSource,
   injectDevScriptSource,
+  releaseNotesScriptSource,
   releaseVersionScriptSource,
   rustArgsSource,
   rustAssetsSource,
@@ -154,6 +156,7 @@ const [
   readFile(buildReleaseInteractiveScriptPath, "utf8"),
   readFile(buildRustScriptPath, "utf8"),
   readFile(injectDevScriptPath, "utf8"),
+  readFile(releaseNotesScriptPath, "utf8"),
   readFile(releaseVersionScriptPath, "utf8"),
   readFile(rustArgsPath, "utf8"),
   readFile(rustAssetsPath, "utf8"),
@@ -358,6 +361,7 @@ assertIncludes(packageSource, '"build:launcher"', "Rust private launcher build p
 assertIncludes(packageSource, '"doctor:rust:dev"', "Rust dev doctor package script");
 assertIncludes(packageSource, '"inject:rust:dev"', "Rust dev inject package script");
 assertIncludes(packageSource, '"release:version": "node scripts/prepare-release-version.mjs"', "release version bump package script");
+assertIncludes(packageSource, '"release:notes": "node scripts/generate-release-notes.mjs"', "release notes generation package script");
 assertIncludes(packageSource, '"inject": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/inject-dev.ps1"', "default inject rebuilds and uses the private launcher");
 assertIncludes(packageSource, '"inject:rust:dev": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/inject-dev.ps1"', "Rust dev inject uses the private launcher script");
 assertIncludes(packageSource, '"check:rust-bridge": "cargo test --target-dir private/target -p codex-pro-bridge"', "Rust bridge checks keep Cargo output under private");
@@ -387,16 +391,22 @@ assertIncludes(buildRustScriptSource, "Get-WorkspaceRepositoryUrl", "release bui
 assertIncludes(buildRustScriptSource, "Write-Utf8NoBomText", "release build writes latest.json without PowerShell 7-only encodings");
 assertIncludes(buildRustScriptSource, "$versionedOutputZip = Join-Path $outputDir \"Codex-Pro-Launcher-v$releaseVersion-windows.zip\"", "release build names the primary zip asset with the version");
 assertIncludes(buildRustScriptSource, "$latestJsonPath = Join-Path $outputDir \"latest.json\"", "release build names the update index");
+assertIncludes(buildRustScriptSource, "$releaseNotesPath = Join-Path $outputDir \"release-notes-v$releaseVersion.md\"", "release build names the release notes file");
 assertIncludes(buildRustScriptSource, "cargo test --target-dir $targetDir", "release build tests use private Cargo target");
 assertIncludes(buildRustScriptSource, "cargo clippy --target-dir $targetDir --all-targets -- -D warnings", "release build clippy uses private Cargo target");
 assertIncludes(buildRustScriptSource, "cargo build --target-dir $targetDir --release --bin Codex-Pro-Launcher", "release build uses private Cargo target");
 assertIncludes(buildRustScriptSource, "Join-Path $targetDir \"release\\Codex-Pro-Launcher.exe\"", "release build copies from private Cargo target");
 assertIncludes(buildRustScriptSource, "$legacyDirectExeAsset", "release build removes stale versioned direct exe asset");
 assertIncludes(buildRustScriptSource, "Compress-Archive -LiteralPath $outputExe -DestinationPath $versionedOutputZip", "release build writes a versioned zip asset");
+assertIncludes(buildRustScriptSource, "scripts\\generate-release-notes.mjs", "release build generates release notes");
+assertIncludes(buildRustScriptSource, "Get-ReleaseNotesBody", "release build reads generated release notes");
 assertIncludes(buildRustScriptSource, "Write-ReleaseLatestJson -Path $latestJsonPath", "release build writes latest.json");
+assertIncludes(buildRustScriptSource, "-ReleaseNotesPath $releaseNotesPath", "release build writes release notes into latest.json");
 assertNotIncludes(buildRustScriptSource, "Codex-Pro-Launcher-v$releaseVersion.exe", "versioned direct exe release asset");
+assertNotIncludes(buildRustScriptSource, 'body = ""', "empty latest.json release notes body");
 assertIncludes(buildRustScriptSource, "Assert-HttpsUrl $updateLatestJsonUrl", "release build validates custom update index URL");
 assertIncludes(buildReleaseInteractiveScriptSource, "Release Index Asset", "interactive release build prints latest.json asset");
+assertIncludes(buildReleaseInteractiveScriptSource, "Release Notes", "interactive release build prints release notes metadata");
 assertIncludes(buildReleaseInteractiveScriptSource, "latest.json index", "interactive release build completion mentions latest.json");
 assertIncludes(releaseVersionScriptSource, "Release index: private/build/rust/latest.json", "release version summary includes latest.json");
 assertIncludes(buildReleaseInteractiveScriptSource, "Write-ArtifactInfo -ArtifactPath $releaseZipAssetPath -Title \"Primary ZIP Asset\"", "interactive release build prints the primary zip metadata");
@@ -407,6 +417,10 @@ assertIncludes(releaseVersionScriptSource, "readRuntimeVersion", "release versio
 assertIncludes(releaseVersionScriptSource, "official release version must be >= 1.0.0", "release version script enforces official 1.x+ versions");
 assertIncludes(releaseVersionScriptSource, "Primary release asset: private/build/rust/Codex-Pro-Launcher-v${targetVersion}-windows.zip", "release version script prints the primary zip asset path");
 assertNotIncludes(releaseVersionScriptSource, "Fallback exe asset", "release version summary direct exe asset");
+assertIncludes(releaseNotesScriptSource, "getPreviousReleaseTag", "release notes script chooses previous semantic tag");
+assertIncludes(releaseNotesScriptSource, "^v\\d+\\.\\d+\\.\\d+$", "release notes script filters stable semantic tags");
+assertIncludes(releaseNotesScriptSource, "shouldSkipCommit", "release notes script filters release-process noise");
+assertIncludes(releaseNotesScriptSource, "release-notes-v${version}.md", "release notes script writes versioned notes under private build");
 assertIncludes(injectDevScriptSource, "$privateLauncher = Join-Path $repoRoot \"private\\bin\\Codex-Pro-Launcher.exe\"", "dev inject resolves the private launcher");
 assertIncludes(injectDevScriptSource, "-File $buildScript -SkipTests", "dev inject rebuilds the private launcher first");
 assertIncludes(injectDevScriptSource, "Start-Process -FilePath $privateLauncher", "dev inject starts the GUI launcher");

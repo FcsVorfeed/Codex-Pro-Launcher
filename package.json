@@ -32,7 +32,8 @@
     "inject": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/inject-dev.ps1",
     "inject:rust": "cargo run --target-dir private/target --bin Codex-Pro-Launcher -- --attach-only --native-bridge",
     "inject:rust:dev": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/inject-dev.ps1",
-    "release:version": "node scripts/prepare-release-version.mjs"
+    "release:version": "node scripts/prepare-release-version.mjs",
+    "release:notes": "node scripts/generate-release-notes.mjs"
   },
   "engines": {
     "node": ">=22"

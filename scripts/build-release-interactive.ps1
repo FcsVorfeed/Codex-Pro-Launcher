@@ -193,9 +193,11 @@ try {
   Write-ArtifactInfo -ArtifactPath $releaseZipAssetPath -Title "Primary ZIP Asset"
   $releaseIndexAssetPath = Join-Path (Split-Path -Parent $artifactPath) "latest.json"
   Write-ArtifactInfo -ArtifactPath $releaseIndexAssetPath -Title "Release Index Asset"
+  $releaseNotesPath = Join-Path (Split-Path -Parent $artifactPath) "release-notes-v$artifactVersion.md"
+  Write-ArtifactInfo -ArtifactPath $releaseNotesPath -Title "Release Notes"
 
   Write-Section "Build Complete"
-  Write-Host "Release executable, ZIP asset, and latest.json index have been generated."
+  Write-Host "Release executable, ZIP asset, latest.json index, and release notes have been generated."
   Write-Host "Log: $logPath"
   exit 0
 } catch {
