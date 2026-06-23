@@ -9,7 +9,7 @@
   },
   "type": "module",
   "scripts": {
-    "check": "npm run check:release-version && npm run check:settings && npm run check:usage-panel && npm run check:chat-width-resizer && npm run check:diff-hover-navigation && npm run check:file-tree && npm run check:conversation-archive-sidebar && npm run check:native-thread-drag-to-chat && npm run check:split-items-hotpath && npm run check:native-bridge && npm run check:rust-bridge && npm run doctor",
+    "check": "npm run check:release-version && npm run check:settings && npm run check:update-check && npm run check:usage-panel && npm run check:chat-width-resizer && npm run check:diff-hover-navigation && npm run check:file-tree && npm run check:conversation-archive-sidebar && npm run check:native-thread-drag-to-chat && npm run check:split-items-hotpath && npm run check:native-bridge && npm run check:rust-bridge && npm run doctor",
     "check:conversation-archive-sidebar": "node scripts/check-conversation-archive-sidebar.mjs",
     "check:diff-hover-navigation": "node scripts/check-diff-hover-navigation.mjs",
     "check:file-tree": "node scripts/check-file-tree-systems.mjs",
@@ -22,6 +22,7 @@
     "check:settings": "npm run check:i18n && npm run check:settings-menu && npm run check:settings-model",
     "check:settings-menu": "node scripts/check-settings-menu-modules.mjs",
     "check:settings-model": "node scripts/check-settings-model.mjs",
+    "check:update-check": "node scripts/check-update-check-cache.mjs",
     "check:usage-panel": "node scripts/check-usage-panel-route-scope.mjs && node scripts/check-usage-panel-view.mjs",
     "check:rust-bridge": "cargo test --target-dir private/target -p codex-pro-bridge",
     "build:launcher": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-launcher-exe.ps1",

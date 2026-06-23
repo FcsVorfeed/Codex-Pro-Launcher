@@ -6,7 +6,7 @@
   const storageKey = "codex-pro:update-check";
   const updateStatusEventName = "codex-pro:update-check-status";
   const startupCheckDelayMs = 3500;
-  const refreshIntervalMs = 6 * 60 * 60 * 1000;
+  const refreshIntervalMs = 10 * 60 * 1000;
   const maxReleaseSummaryLength = 1200;
 
   let state = normalizeState(readCachedState());
@@ -69,11 +69,14 @@
   }
 
   function readCachedState() {
-    // 这一段读取上次更新检查结果，让重新注入后角标可以立即恢复。
-    // Read the last update-check result so the badge can restore immediately after reinjection.
+    // 这一段读取上次更新检查结果；版本变化后的旧缓存不能继续点亮升级角标。
+    // Read the last update-check result, but never let a different-version cache keep the badge lit.
     try {
       const parsed = JSON.parse(window.localStorage.getItem(storageKey) || "{}");
-      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+      const cachedVersion = normalizeString(parsed.currentVersion, 40);
+      if (!cachedVersion || cachedVersion !== normalizeString(runtime.version, 40)) return {};
+      return parsed;
     } catch {
       return {};
     }
@@ -124,8 +127,9 @@
   }
 
   function shouldRefreshCachedState() {
-    // 这一段限制自动检查频率，避免每次注入都打 GitHub 发布接口。
-    // Limit automatic check frequency so every reinjection does not hit GitHub release endpoints.
+    // 这一段限制自动检查频率；本地版本变化会绕过缓存，避免旧升级状态粘住。
+    // Limit automatic checks; local version changes bypass the cache so old update states cannot stick.
+    if (state.currentVersion !== normalizeString(runtime.version, 40)) return true;
     const checkedAt = Date.parse(state.checkedAt || "");
     return !Number.isFinite(checkedAt) || Date.now() - checkedAt >= refreshIntervalMs;
   }
