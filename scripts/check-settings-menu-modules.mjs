@@ -216,6 +216,13 @@ const expectedSections = [
     },
   },
   {
+    id: "performance-fixes",
+    modulePath: ["src", "inject", "systems", "performance-fixes", "settings.js"],
+    ownerSystem: "split-items-hotpath-patch",
+    settingKeys: ["enableSplitItemsHotpathPatch"],
+    modifiedSettingKeys: ["enableSplitItemsHotpathPatch"],
+  },
+  {
     id: "update-check",
     modulePath: ["src", "inject", "systems", "update-check", "settings.js"],
     ownerSystem: "update-check",

@@ -72,6 +72,10 @@ export const settingsMenuSectionModules = [
     path: ["src", "inject", "systems", "native-thread-drag-to-chat", "settings.js"],
   },
   {
+    ownerSystem: "split-items-hotpath-patch",
+    path: ["src", "inject", "systems", "performance-fixes", "settings.js"],
+  },
+  {
     ownerSystem: "update-check",
     path: ["src", "inject", "systems", "update-check", "settings.js"],
   },

@@ -5,6 +5,16 @@ import vm from "node:vm";
 const sourcePath = new URL("../crates/codex-pro-core/src/split_items_hotpath_patch.rs", import.meta.url);
 const rustSource = readFileSync(sourcePath, "utf8");
 
+assert.ok(
+  rustSource.includes("enableSplitItemsHotpathPatch"),
+  "Rust split-items hotpath patch must read the performance-fixes setting",
+);
+assert.ok(
+  rustSource.indexOf("split_items_hotpath_patch_enabled(client)") <
+    rustSource.indexOf("runtime_patch_marker_active(client)"),
+  "Rust split-items hotpath patch must check the setting before the active marker",
+);
+
 function extractRawStringConstant(name) {
   const match = rustSource.match(new RegExp(`const ${name}: &str = r#"(.*?)"#;`, "s"));
   assert.ok(match, `missing ${name}`);

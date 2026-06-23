@@ -229,6 +229,7 @@ assertIncludes(rustPetEventSoundSource, "pub async fn run_pet_event_sound_reques
 assertIncludes(rustPetEventSoundSource, "PET_EVENT_SOUND_MAX_BYTES", "Rust pet event sound file size cap");
 assertIncludes(rustPetEventSoundSource, "mime_from_path", "Rust pet event sound extension allow-list");
 assertIncludes(rustAssetsSource, "src/inject/systems/update-check/settings.js", "Rust core assets should embed update-check settings");
+assertIncludes(rustAssetsSource, "src/inject/systems/performance-fixes/settings.js", "Rust core assets should embed performance fixes settings");
 assertIncludes(rustAssetsSource, "src/inject/systems/update-check/index.js", "Rust core assets should embed update-check runtime");
 assertIncludes(rustAssetsSource, "src/inject/systems/pet-event-sounds/index.js", "Rust core assets should embed pet event sound runtime");
 assertIncludes(rustAssetsSource, "src/inject/systems/settings-menu/sections/pet-status.js", "Rust core assets should embed pet status settings section");

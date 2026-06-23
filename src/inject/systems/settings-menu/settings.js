@@ -95,6 +95,7 @@
     enableMouseGestures: false,
     enableNativeThreadDragToChat: true,
     enablePetEventSounds: false,
+    enableSplitItemsHotpathPatch: true,
     enableStartupSidebar: false,
     enableTabDragToChat: true,
     enableUsagePanel: true,
@@ -842,6 +843,10 @@
     {
       key: "enablePetEventSounds",
       normalize: (value) => normalizeEnabledSetting(value, defaultSettings.enablePetEventSounds),
+    },
+    {
+      key: "enableSplitItemsHotpathPatch",
+      normalize: (value) => normalizeEnabledSetting(value, defaultSettings.enableSplitItemsHotpathPatch),
     },
     {
       key: "enableStartupSidebar",

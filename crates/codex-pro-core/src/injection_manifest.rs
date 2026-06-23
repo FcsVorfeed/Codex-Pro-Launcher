@@ -86,6 +86,10 @@ pub const SETTINGS_MENU_SECTION_MODULES: &[SettingsSectionModule] = &[
         path: "src/inject/systems/native-thread-drag-to-chat/settings.js",
     },
     SettingsSectionModule {
+        owner_system: "split-items-hotpath-patch",
+        path: "src/inject/systems/performance-fixes/settings.js",
+    },
+    SettingsSectionModule {
         owner_system: "update-check",
         path: "src/inject/systems/update-check/settings.js",
     },

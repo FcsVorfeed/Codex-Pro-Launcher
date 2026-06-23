@@ -66,6 +66,9 @@ pub fn module_source(path: &str) -> Option<&'static str> {
         "src/inject/systems/native-thread-drag-to-chat/settings.js" => {
             include_str!("../../../src/inject/systems/native-thread-drag-to-chat/settings.js")
         }
+        "src/inject/systems/performance-fixes/settings.js" => {
+            include_str!("../../../src/inject/systems/performance-fixes/settings.js")
+        }
         "src/inject/systems/update-check/settings.js" => {
             include_str!("../../../src/inject/systems/update-check/settings.js")
         }

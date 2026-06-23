@@ -23,6 +23,15 @@ const OPTIMIZED_HOTPATH_SOURCE: &str = r#"var __codexProSplitItemsNormalizeCache
 /// 这一段尝试对官方 split-items chunk 应用运行时补丁。
 /// Try to apply the runtime patch to the official split-items chunk.
 pub async fn apply_split_items_hotpath_patch(client: &mut CdpClient) -> anyhow::Result<String> {
+    // 这一段优先尊重用户设置；即使当前页已加载补丁，关闭后也不再报告为主动应用。
+    // Respect the user setting first; even if the page already loaded the patch, off no longer reports an active apply.
+    if !split_items_hotpath_patch_enabled(client)
+        .await
+        .unwrap_or(true)
+    {
+        return Ok("disabled by settings".to_string());
+    }
+
     // 这一段先检查当前页面是否已经加载过补丁，避免每次注入都 reload。
     // Check whether the current page already loaded the patch so reinjection does not reload every time.
     if runtime_patch_marker_active(client).await.unwrap_or(false) {
@@ -83,6 +92,35 @@ fn force_split_items_reload() -> bool {
             .as_str(),
         "1" | "true" | "yes"
     )
+}
+
+/// 这一段读取页面设置中的热补丁开关。
+/// Read the hotpatch switch from the page settings.
+async fn split_items_hotpath_patch_enabled(client: &mut CdpClient) -> anyhow::Result<bool> {
+    // 这一段只把显式 false 视为关闭；无设置、旧设置或读取失败都保持默认开启。
+    // Treat only explicit false as disabled; missing, legacy, or unreadable settings keep the default on.
+    let response = client
+        .send(
+            "Runtime.evaluate",
+            json!({
+                "expression": r#"
+(() => {
+  try {
+    const raw = globalThis.localStorage?.getItem("codex-pro:settings");
+    const settings = raw ? JSON.parse(raw) : {};
+    return !(settings && typeof settings === "object" && settings.enableSplitItemsHotpathPatch === false);
+  } catch {
+    return true;
+  }
+})()
+"#,
+                "returnByValue": true,
+                "awaitPromise": false,
+                "allowUnsafeEvalBlockedByCSP": true,
+            }),
+        )
+        .await?;
+    Ok(response_value(&response).as_bool().unwrap_or(true))
 }
 
 /// 这一段检查当前页面是否适合自动 reload。
