@@ -139,6 +139,139 @@ function Write-ArtifactInfo {
   Write-Host "FileDescription: $($versionInfo.FileDescription)"
 }
 
+# Refresh the local DEV runtime after release packaging and verify the visible page version.
+function Invoke-DevRuntimeVersionProbe {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$ExpectedVersion
+  )
+
+  $probeScript = @'
+import { readdir, readFile } from 'node:fs/promises';
+import path from 'node:path';
+
+const expectedVersion = process.argv[1];
+if (!expectedVersion) {
+  throw new Error('expected runtime version argument is required');
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function readStatePorts() {
+  const codexHome = process.env.CODEX_HOME || path.join(process.env.USERPROFILE || process.env.HOME || '', '.codex');
+  const stateDir = path.join(codexHome, '.Codex-Pro-Launcher');
+  const ports = [9229];
+  try {
+    const entries = await readdir(stateDir, { withFileTypes: true });
+    for (const entry of entries) {
+      const match = /^native-bridge-(\d+)\.json$/u.exec(entry.name);
+      if (!entry.isFile() || !match) continue;
+      const source = await readFile(path.join(stateDir, entry.name), 'utf8');
+      const state = JSON.parse(source);
+      const port = Number(state.debugPort || match[1]);
+      if (Number.isInteger(port) && port > 0) ports.push(port);
+    }
+  } catch {
+    // State files are only hints; the default CDP port is still probed below.
+  }
+  return [...new Set(ports)];
+}
+
+async function fetchTargets(port) {
+  for (const host of ['127.0.0.1', '[::1]']) {
+    try {
+      const response = await fetch(`http://${host}:${port}/json`, { signal: AbortSignal.timeout(1500) });
+      if (response.ok) return await response.json();
+    } catch {
+      // Try the next loopback host or port.
+    }
+  }
+  return null;
+}
+
+async function findMainTarget() {
+  for (const port of await readStatePorts()) {
+    const targets = await fetchTargets(port);
+    if (!Array.isArray(targets)) continue;
+    const target = targets.find((item) =>
+      item?.type === 'page' &&
+      typeof item.url === 'string' &&
+      item.url.startsWith('app://-/index.html') &&
+      !item.url.includes('initialRoute') &&
+      item.webSocketDebuggerUrl
+    );
+    if (target) return target;
+  }
+  throw new Error('Codex main CDP target was not found');
+}
+
+async function evaluateRuntime(target) {
+  const ws = new WebSocket(target.webSocketDebuggerUrl);
+  let nextId = 0;
+  const send = (method, params = {}) => new Promise((resolve, reject) => {
+    const id = ++nextId;
+    const timer = setTimeout(() => reject(new Error(`CDP timeout: ${method}`)), 10000);
+    const onMessage = (event) => {
+      const message = JSON.parse(event.data);
+      if (message.id !== id) return;
+      clearTimeout(timer);
+      ws.removeEventListener('message', onMessage);
+      if (message.error) reject(new Error(JSON.stringify(message.error)));
+      else resolve(message.result);
+    };
+    ws.addEventListener('message', onMessage);
+    ws.send(JSON.stringify({ id, method, params }));
+  });
+
+  await new Promise((resolve, reject) => {
+    ws.addEventListener('open', resolve, { once: true });
+    ws.addEventListener('error', reject, { once: true });
+  });
+
+  try {
+    const expression = `(() => {
+      const runtime = window.__codexProRuntime;
+      const updateCheck = runtime?.systemModules?.updateCheck;
+      return {
+        location: location.href,
+        runtimeVersion: runtime?.version ?? null,
+        nativeBridgeAvailable: runtime?.nativeBridge?.isAvailable?.() ?? null,
+        bridgeProtocol: window.__codexProNativeBridgeConfig?.protocolVersion ?? null,
+        updateState: updateCheck?.getState?.() ?? null
+      };
+    })()`;
+    const result = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
+    return result.result?.value;
+  } finally {
+    ws.close();
+  }
+}
+
+let lastError = null;
+for (let attempt = 1; attempt <= 10; attempt += 1) {
+  try {
+    const target = await findMainTarget();
+    const runtime = await evaluateRuntime(target);
+    console.log(JSON.stringify(runtime, null, 2));
+    if (runtime?.runtimeVersion !== expectedVersion) {
+      throw new Error(`runtime.version is ${runtime?.runtimeVersion || 'missing'}, expected ${expectedVersion}`);
+    }
+    if (runtime?.nativeBridgeAvailable !== true) {
+      throw new Error('native bridge is not available after DEV runtime refresh');
+    }
+    process.exit(0);
+  } catch (error) {
+    lastError = error;
+    await sleep(1000);
+  }
+}
+
+throw lastError;
+'@
+
+  Invoke-RequiredCommand -Step "Dev Runtime Version Probe" -Command "node" -Arguments @("--input-type=module", "-e", $probeScript, $ExpectedVersion)
+}
+
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 Set-Location $repoRoot
 
@@ -196,8 +329,12 @@ try {
   $releaseNotesPath = Join-Path (Split-Path -Parent $artifactPath) "release-notes-v$artifactVersion.md"
   Write-ArtifactInfo -ArtifactPath $releaseNotesPath -Title "Release Notes"
 
+  # Refresh the local DEV runtime after packaging so this machine does not keep reporting an older current version.
+  Invoke-RequiredCommand -Step "Refresh Dev Runtime" -Command "npm" -Arguments @("run", "inject")
+  Invoke-DevRuntimeVersionProbe -ExpectedVersion $artifactVersion
+
   Write-Section "Build Complete"
-  Write-Host "Release executable, ZIP asset, latest.json index, and release notes have been generated."
+  Write-Host "Release executable, ZIP asset, latest.json index, release notes, and local DEV runtime have been refreshed."
   Write-Host "Log: $logPath"
   exit 0
 } catch {

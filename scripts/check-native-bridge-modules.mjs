@@ -409,6 +409,11 @@ assertIncludes(buildRustScriptSource, "Assert-HttpsUrl $updateLatestJsonUrl", "r
 assertIncludes(buildReleaseInteractiveScriptSource, "Release Index Asset", "interactive release build prints latest.json asset");
 assertIncludes(buildReleaseInteractiveScriptSource, "Release Notes", "interactive release build prints release notes metadata");
 assertIncludes(buildReleaseInteractiveScriptSource, "latest.json index", "interactive release build completion mentions latest.json");
+assertIncludes(buildReleaseInteractiveScriptSource, "Refresh Dev Runtime", "interactive release build refreshes the local DEV runtime after packaging");
+assertIncludes(buildReleaseInteractiveScriptSource, 'Invoke-RequiredCommand -Step "Refresh Dev Runtime" -Command "npm" -Arguments @("run", "inject")', "interactive release build calls npm run inject after packaging");
+assertIncludes(buildReleaseInteractiveScriptSource, "Invoke-DevRuntimeVersionProbe -ExpectedVersion $artifactVersion", "interactive release build verifies the visible runtime version after DEV refresh");
+assertIncludes(buildReleaseInteractiveScriptSource, "runtime?.version ?? null", "interactive release build probes window.__codexProRuntime.version");
+assertIncludes(buildReleaseInteractiveScriptSource, "runtime.version is", "interactive release build fails on stale visible runtime versions");
 assertIncludes(releaseVersionScriptSource, "Release index: private/build/rust/latest.json", "release version summary includes latest.json");
 assertIncludes(buildReleaseInteractiveScriptSource, "Write-ArtifactInfo -ArtifactPath $releaseZipAssetPath -Title \"Primary ZIP Asset\"", "interactive release build prints the primary zip metadata");
 assertIncludes(buildReleaseInteractiveScriptSource, "\"Codex-Pro-Launcher-v$artifactVersion-windows.zip\"", "interactive release build locates the zip asset by executable metadata");
