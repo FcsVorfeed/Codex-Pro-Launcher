@@ -335,6 +335,22 @@ pub async fn inject(
     let mut client = CdpClient::connect(websocket_url).await?;
     let result = async {
         client.send("Runtime.enable", json!({})).await?;
+
+        // 这一段在普通注入前尝试应用官方 split-items 热路径补丁；失败只记录，不阻断其它功能。
+        // Try the official split-items hotpath patch before normal injection; failures are logged without blocking other systems.
+        if !disabled_systems
+            .iter()
+            .any(|system| system.as_str() == "split-items-hotpath-patch")
+        {
+            match crate::split_items_hotpath_patch::apply_split_items_hotpath_patch(&mut client)
+                .await
+            {
+                Ok(status) => eprintln!("[Codex-Pro] split-items hotpath patch: {status}"),
+                Err(error) => {
+                    eprintln!("[Codex-Pro] split-items hotpath patch skipped: {error}")
+                }
+            }
+        }
         if let Some(native_bridge) = native_bridge {
             let add_binding = client
                 .send(

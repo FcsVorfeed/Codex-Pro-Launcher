@@ -159,6 +159,7 @@ name = "codex-pro-core"
 version = "1.0.2"
 dependencies = [
  "anyhow",
+ "base64",
  "futures-util",
  "reqwest",
  "serde",

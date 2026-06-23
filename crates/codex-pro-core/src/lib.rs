@@ -10,4 +10,5 @@ pub mod native_bridge;
 pub mod paths;
 pub mod ports;
 pub mod process;
+pub mod split_items_hotpath_patch;
 pub mod windows_shell;
