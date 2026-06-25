@@ -3,7 +3,7 @@ use uuid::Uuid;
 
 /// 这一段定义 Rust native bridge 协议版本。
 /// Rust native bridge protocol version.
-pub const NATIVE_BRIDGE_PROTOCOL_VERSION: u32 = 71;
+pub const NATIVE_BRIDGE_PROTOCOL_VERSION: u32 = 72;
 /// 这一段定义页面 binding 名称前缀。
 /// Page binding name prefix.
 pub const NATIVE_BRIDGE_BINDING_PREFIX: &str = "__codexProNativeBridge";

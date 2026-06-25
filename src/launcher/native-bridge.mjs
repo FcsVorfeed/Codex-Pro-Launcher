@@ -13,7 +13,7 @@ import { startPetEventSoundOverlayTargetWatcher } from "./pet-event-sound-overla
 import { launcherPath, rootDir } from "./paths.mjs";
 
 const nativeBridgeBindingName = "__codexProNativeBridge";
-const nativeBridgeProtocolVersion = 71;
+const nativeBridgeProtocolVersion = 72;
 const nativeBridgeResponseEventName = "codex-pro:native-bridge-response";
 const nativeBridgeMaxPayloadLength = 24_000;
 const nativeBridgeHeartbeatMs = 2000;

@@ -14,6 +14,7 @@ const diffHoverPreviewPath = path.join(rootDir, "src", "launcher", "native-bridg
 const mouseGesturesPath = path.join(rootDir, "src", "launcher", "native-bridge", "handlers", "mouse-gestures.mjs");
 const todayTokenUsagePath = path.join(rootDir, "src", "launcher", "native-bridge", "handlers", "today-token-usage.mjs");
 const petEventSoundPath = path.join(rootDir, "src", "launcher", "native-bridge", "handlers", "pet-event-sound.mjs");
+const codexSqliteLogBlockerPath = path.join(rootDir, "src", "launcher", "native-bridge", "handlers", "codex-sqlite-log-blocker.mjs");
 const packagePath = path.join(rootDir, "package.json");
 const buildLauncherScriptPath = path.join(rootDir, "scripts", "build-launcher-exe.ps1");
 const buildReleaseInteractiveScriptPath = path.join(rootDir, "scripts", "build-release-interactive.ps1");
@@ -31,6 +32,7 @@ const rustRouterPath = path.join(rootDir, "crates", "codex-pro-bridge", "src", "
 const rustPetSyncPath = path.join(rootDir, "crates", "codex-pro-bridge", "src", "handlers", "pet_sync.rs");
 const rustPetEventSoundPath = path.join(rootDir, "crates", "codex-pro-bridge", "src", "handlers", "pet_event_sound.rs");
 const rustUpdateCheckPath = path.join(rootDir, "crates", "codex-pro-bridge", "src", "handlers", "update_check.rs");
+const rustCodexSqliteLogBlockerPath = path.join(rootDir, "crates", "codex-pro-bridge", "src", "handlers", "codex_sqlite_log_blocker.rs");
 const rustConversationArchiveDir = path.join(rootDir, "crates", "codex-pro-bridge", "src", "handlers", "conversation_archive");
 const rustConversationArchivePaths = [
   "codex_state.rs",
@@ -92,6 +94,7 @@ await Promise.all([
   assertFileExists(mouseGesturesPath),
   assertFileExists(todayTokenUsagePath),
   assertFileExists(petEventSoundPath),
+  assertFileExists(codexSqliteLogBlockerPath),
   assertFileExists(buildLauncherScriptPath),
   assertFileExists(buildReleaseInteractiveScriptPath),
   assertFileExists(buildRustScriptPath),
@@ -107,6 +110,7 @@ await Promise.all([
   assertFileExists(rustPetSyncPath),
   assertFileExists(rustPetEventSoundPath),
   assertFileExists(rustUpdateCheckPath),
+  assertFileExists(rustCodexSqliteLogBlockerPath),
   ...rustConversationArchivePaths.map((filePath) => assertFileExists(filePath)),
   assertFileExists(rustLauncherMainPath),
 ]);
@@ -122,6 +126,7 @@ const [
   diffHoverPreviewSource,
   mouseGesturesSource,
   petEventSoundSource,
+  codexSqliteLogBlockerSource,
   packageSource,
   buildLauncherScriptSource,
   buildReleaseInteractiveScriptSource,
@@ -139,6 +144,7 @@ const [
   rustPetSyncSource,
   rustPetEventSoundSource,
   rustUpdateCheckSource,
+  rustCodexSqliteLogBlockerSource,
   rustLauncherMainSource,
 ] = await Promise.all([
   readFile(mainPath, "utf8"),
@@ -151,6 +157,7 @@ const [
   readFile(diffHoverPreviewPath, "utf8"),
   readFile(mouseGesturesPath, "utf8"),
   readFile(petEventSoundPath, "utf8"),
+  readFile(codexSqliteLogBlockerPath, "utf8"),
   readFile(packagePath, "utf8"),
   readFile(buildLauncherScriptPath, "utf8"),
   readFile(buildReleaseInteractiveScriptPath, "utf8"),
@@ -168,14 +175,15 @@ const [
   readFile(rustPetSyncPath, "utf8"),
   readFile(rustPetEventSoundPath, "utf8"),
   readFile(rustUpdateCheckPath, "utf8"),
+  readFile(rustCodexSqliteLogBlockerPath, "utf8"),
   readFile(rustLauncherMainPath, "utf8"),
 ]);
 const conversationArchiveSource = (await Promise.all(
   rustConversationArchivePaths.map((filePath) => readFile(filePath, "utf8")),
 )).join("\n");
 
-assertIncludes(mainSource, "const nativeBridgeProtocolVersion = 71", "native bridge protocol version bump");
-assertIncludes(rustProtocolSource, "NATIVE_BRIDGE_PROTOCOL_VERSION: u32 = 71", "Rust native bridge protocol version bump");
+assertIncludes(mainSource, "const nativeBridgeProtocolVersion = 72", "native bridge protocol version bump");
+assertIncludes(rustProtocolSource, "NATIVE_BRIDGE_PROTOCOL_VERSION: u32 = 72", "Rust native bridge protocol version bump");
 assertIncludes(mainSource, "protocolVersion === nativeBridgeProtocolVersion", "native bridge reusable worker version gate");
 assertIncludes(mainSource, "startPetEventSoundOverlayTargetWatcher", "native bridge worker overlay watcher import");
 assertIncludes(mainSource, "disabledSystems", "native bridge worker preserves disabled system list");
@@ -206,6 +214,10 @@ assertIncludes(nativeBridgeCoreSource, "supportsUpdateCheck", "update-check brid
 assertIncludes(nativeBridgeCoreSource, "requestUpdateCheck", "update-check bridge request");
 assertIncludes(nativeBridgeCoreSource, "supportsPetEventSound", "pet event sound bridge capability gate");
 assertIncludes(nativeBridgeCoreSource, "requestPetEventSound", "pet event sound bridge request");
+assertIncludes(nativeBridgeCoreSource, "supportsCodexSqliteLogBlocker", "Codex SQLite log blocker bridge capability gate");
+assertIncludes(nativeBridgeCoreSource, "requestCodexSqliteLogBlocker", "Codex SQLite log blocker bridge request");
+assertIncludes(nativeBridgeCoreSource, "protocolVersion >= 72", "Codex SQLite log blocker bridge protocol gate");
+assertIncludes(nativeBridgeCoreSource, 'send("codex-sqlite-log-blocker", request)', "Codex SQLite log blocker bridge should send only action requests");
 assertIncludes(nativeBridgeCoreSource, "resolvePetEventSoundStateId", "pet event sound bridge should resolve state ids from settings");
 assertIncludes(nativeBridgeCoreSource, "params?.stateId", "pet event sound bridge should expose state id requests instead of raw paths");
 assertIncludes(nativeBridgeCoreSource, 'send("pet-event-sound", { requestId, stateId })', "pet event sound bridge should send only state ids to native");
@@ -213,11 +225,14 @@ assertIncludes(nativeBridgeCoreSource, "protocolVersion >= 70", "pet event sound
 assertIncludes(overlayInjectionSource, "main-window-playback-v1", "pet overlay watcher should require the main-window playback runtime marker");
 assertIncludes(routerSource, '"today-token-usage"', "Today token usage router registration");
 assertIncludes(routerSource, '"pet-event-sound"', "pet event sound router registration");
+assertIncludes(routerSource, '"codex-sqlite-log-blocker"', "Codex SQLite log blocker router registration");
 assertIncludes(rustRouterSource, "TodayTokenUsage", "Rust Today token usage router registration");
 assertIncludes(rustRouterSource, "UpdateCheck", "Rust update-check router registration");
 assertIncludes(rustRouterSource, "PetEventSound", "Rust pet event sound router registration");
+assertIncludes(rustRouterSource, "CodexSqliteLogBlocker", "Rust Codex SQLite log blocker router registration");
 assertIncludes(rustRouterSource, '"update-check"', "Rust update-check request type");
 assertIncludes(rustRouterSource, '"pet-event-sound"', "Rust pet event sound request type");
+assertIncludes(rustRouterSource, '"codex-sqlite-log-blocker"', "Rust Codex SQLite log blocker request type");
 assertIncludes(rustRouterSource, '"updateCheckFailed"', "Rust update-check returns a neutral page error");
 assertIncludes(rustRouterSource, '"readFailed"', "Rust pet event sound returns a neutral page error");
 assertIncludes(rustUpdateCheckSource, "pub fn parse_update_check_request", "Rust update-check request parser export");
@@ -228,6 +243,11 @@ assertIncludes(rustPetEventSoundSource, "pub fn parse_pet_event_sound_request", 
 assertIncludes(rustPetEventSoundSource, "pub async fn run_pet_event_sound_request", "Rust pet event sound runner export");
 assertIncludes(rustPetEventSoundSource, "PET_EVENT_SOUND_MAX_BYTES", "Rust pet event sound file size cap");
 assertIncludes(rustPetEventSoundSource, "mime_from_path", "Rust pet event sound extension allow-list");
+assertIncludes(rustCodexSqliteLogBlockerSource, "pub fn parse_codex_sqlite_log_blocker_request", "Rust Codex SQLite log blocker request parser export");
+assertIncludes(rustCodexSqliteLogBlockerSource, "pub async fn run_codex_sqlite_log_blocker_request", "Rust Codex SQLite log blocker runner export");
+assertIncludes(rustCodexSqliteLogBlockerSource, "logs_2.sqlite", "Rust Codex SQLite log blocker targets the official log database");
+assertIncludes(rustCodexSqliteLogBlockerSource, "RAISE(IGNORE)", "Rust Codex SQLite log blocker installs the trigger workaround");
+assertIncludes(rustCodexSqliteLogBlockerSource, "sqlite_schema", "Rust Codex SQLite log blocker checks schema only");
 assertIncludes(rustAssetsSource, "src/inject/systems/update-check/settings.js", "Rust core assets should embed update-check settings");
 assertIncludes(rustAssetsSource, "src/inject/systems/performance-fixes/settings.js", "Rust core assets should embed performance fixes settings");
 assertIncludes(rustAssetsSource, "src/inject/systems/update-check/index.js", "Rust core assets should embed update-check runtime");
@@ -273,6 +293,10 @@ assertIncludes(petEventSoundSource, "export async function readPetEventSound", "
 assertIncludes(petEventSoundSource, "export async function resolvePetEventSoundPath", "pet event sound native resolver export");
 assertIncludes(petEventSoundSource, "petEventSoundMaxBytes", "pet event sound file size cap");
 assertIncludes(petEventSoundSource, "getPetEventSoundMime", "pet event sound extension allow-list");
+assertIncludes(codexSqliteLogBlockerSource, "export function parseCodexSqliteLogBlockerRequest", "Codex SQLite log blocker request parser export");
+assertIncludes(codexSqliteLogBlockerSource, "export async function runCodexSqliteLogBlockerRequest", "Codex SQLite log blocker runner export");
+assertIncludes(codexSqliteLogBlockerSource, "logs_2.sqlite", "Codex SQLite log blocker targets the official log database");
+assertIncludes(codexSqliteLogBlockerSource, "RAISE(IGNORE)", "Codex SQLite log blocker installs the trigger workaround");
 assertIncludes(rustPetSyncSource, "pub fn parse_pet_sync_request", "Rust pet-sync request parser export");
 assertIncludes(rustPetSyncSource, "pub async fn run_pet_sync_request", "Rust pet-sync runner export");
 assertIncludes(rustPetSyncSource, "fn push_body_matches_legacy_pet_sync_contract", "Rust pet-sync upload contract test");

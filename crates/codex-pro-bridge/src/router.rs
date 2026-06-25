@@ -1,6 +1,6 @@
 use crate::handlers::{
-    cloud_sync, conversation_archive, diff_hover_preview, mouse_gestures, pet_event_sound,
-    pet_sync, today_token_usage, update_check,
+    cloud_sync, codex_sqlite_log_blocker, conversation_archive, diff_hover_preview, mouse_gestures,
+    pet_event_sound, pet_sync, today_token_usage, update_check,
 };
 use crate::protocol::{NATIVE_BRIDGE_MAX_PAYLOAD_LENGTH, NATIVE_BRIDGE_RESPONSE_EVENT_NAME};
 use codex_pro_core::cdp::CdpClient;
@@ -39,6 +39,9 @@ pub enum BridgeRequest {
     /// 这一段是更新检查请求。
     /// Update-check request.
     UpdateCheck(update_check::UpdateCheckRequest),
+    /// 这一段是 Codex SQLite 日志拦截请求。
+    /// Codex SQLite log blocker request.
+    CodexSqliteLogBlocker(codex_sqlite_log_blocker::CodexSqliteLogBlockerRequest),
 }
 
 /// 这一段描述业务任务要交回 CDP 主循环处理的事件。
@@ -106,6 +109,10 @@ pub fn parse_native_bridge_request(
             .map(BridgeRequest::TodayTokenUsage),
         "update-check" => {
             update_check::parse_update_check_request(&value).map(BridgeRequest::UpdateCheck)
+        }
+        "codex-sqlite-log-blocker" => {
+            codex_sqlite_log_blocker::parse_codex_sqlite_log_blocker_request(&value)
+                .map(BridgeRequest::CodexSqliteLogBlocker)
         }
         _ => None,
     }
@@ -181,6 +188,20 @@ pub fn dispatch_native_bridge_request(events: BridgeWorkerEventSender, request: 
                         json!({ "ok": false, "status": 0, "data": null, "error": "updateCheckFailed" })
                     });
                 send_response(events, request_id, "update-check", response);
+            });
+        }
+        BridgeRequest::CodexSqliteLogBlocker(request) => {
+            tokio::spawn(async move {
+                let request_id = request.request_id.clone();
+                // 这一段返回短状态，不把本机日志库路径或 SQLite 细节暴露给页面。
+                // Return short states without exposing the local log database path or SQLite details to the page.
+                let response =
+                    codex_sqlite_log_blocker::run_codex_sqlite_log_blocker_request(&request)
+                        .await
+                        .unwrap_or_else(|_| {
+                            json!({ "ok": false, "status": 0, "data": { "state": "error", "enabled": false, "applied": false }, "error": "sqliteError" })
+                        });
+                send_response(events, request_id, "codex-sqlite-log-blocker", response);
             });
         }
     }

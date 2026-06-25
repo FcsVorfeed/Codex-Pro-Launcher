@@ -12,6 +12,7 @@
   const petEventSoundRequestTimeoutMs = 10000;
   const todayTokenUsageRequestTimeoutMs = 10000;
   const updateCheckRequestTimeoutMs = 12000;
+  const codexSqliteLogBlockerRequestTimeoutMs = 10000;
 
   function getBinding() {
     // 这一段只读取 launcher 注入的受控绑定函数，缺失时让调用方走降级逻辑。
@@ -112,6 +113,12 @@
     // 这一段要求支持宠物状态音效读取的新版桥协议，避免旧 worker 收到本机路径请求后无响应。
     // Require the newer pet-state sound bridge protocol so older workers do not receive local-path requests without replying.
     return Boolean(bridgeConfig?.protocolVersion >= 70 && getBinding() && bridgeConfig?.bridgeId && isHeartbeatFresh());
+  }
+
+  function supportsCodexSqliteLogBlocker() {
+    // 这一段要求支持 Codex SQLite 日志拦截的新版桥协议，避免旧 worker 收到未知 schema 请求后无响应。
+    // Require the newer Codex SQLite log blocker bridge protocol so older workers do not receive unknown schema requests.
+    return Boolean(bridgeConfig?.protocolVersion >= 72 && getBinding() && bridgeConfig?.bridgeId && isHeartbeatFresh());
   }
 
   function isShortBridgeText(value, maxLength) {
@@ -369,6 +376,36 @@
     });
   }
 
+  function requestCodexSqliteLogBlocker(params = {}) {
+    // 这一段通过 launcher 查询或应用日志拦截状态，只传动作和布尔目标，不传本机路径或 SQL。
+    // Ask the launcher to query or apply the log blocker, sending only action and desired boolean, not paths or SQL.
+    if (!supportsCodexSqliteLogBlocker()) return Promise.resolve(null);
+    const action = String(params?.action || "").trim();
+    if (action !== "status" && action !== "apply") return Promise.resolve(null);
+    const requestId = crypto.randomUUID();
+    const request = { action, requestId };
+    if (action === "apply") request.enabled = params?.enabled === true;
+    return new Promise((resolve) => {
+      let timeoutId = 0;
+      const cleanup = () => {
+        window.clearTimeout(timeoutId);
+        window.removeEventListener(responseEventName, handleResponse);
+      };
+      function finish(value) {
+        cleanup();
+        resolve(value);
+      }
+      function handleResponse(event) {
+        const detail = event?.detail;
+        if (!detail || detail.requestId !== requestId || detail.type !== "codex-sqlite-log-blocker") return;
+        finish(detail.response || null);
+      }
+      window.addEventListener(responseEventName, handleResponse);
+      timeoutId = window.setTimeout(() => finish(null), codexSqliteLogBlockerRequestTimeoutMs);
+      if (!send("codex-sqlite-log-blocker", request)) finish(null);
+    });
+  }
+
   function resolvePetEventSoundStateId(params) {
     // 这一段把公开调用面收敛为官方状态 id，不接受任意本机路径参数。
     // Narrow the public call surface to an official state id and do not accept arbitrary local path parameters.
@@ -417,6 +454,7 @@
     isAvailable: () => Boolean(getBinding() && bridgeConfig?.bridgeId && isHeartbeatFresh()),
     requestCloudSync,
     requestConversationArchive,
+    requestCodexSqliteLogBlocker,
     requestGitDiffSummary,
     requestPetEventSound,
     requestPetSync,
@@ -426,6 +464,7 @@
     sendShortcut,
     supportsCloudSync,
     supportsConversationArchive,
+    supportsCodexSqliteLogBlocker,
     supportsExternalDiff,
     supportsGitDiffSummary,
     supportsPetEventSound,

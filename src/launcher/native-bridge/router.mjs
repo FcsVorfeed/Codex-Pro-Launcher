@@ -21,6 +21,10 @@ import {
   readPetEventSound,
   resolvePetEventSoundPath,
 } from "./handlers/pet-event-sound.mjs";
+import {
+  parseCodexSqliteLogBlockerRequest,
+  runCodexSqliteLogBlockerRequest,
+} from "./handlers/codex-sqlite-log-blocker.mjs";
 
 const defaultNativeBridgeMaxPayloadLength = 24_000;
 
@@ -34,6 +38,7 @@ function createParserMap() {
     ["conversation-archive", parseConversationArchiveRequest],
     ["today-token-usage", parseTodayTokenUsageRequest],
     ["pet-event-sound", parsePetEventSoundRequest],
+    ["codex-sqlite-log-blocker", parseCodexSqliteLogBlockerRequest],
   ]);
 }
 
@@ -47,6 +52,7 @@ function createDispatchMap() {
     ["conversation-archive", dispatchConversationArchiveRequest],
     ["today-token-usage", dispatchTodayTokenUsageRequest],
     ["pet-event-sound", dispatchPetEventSoundRequest],
+    ["codex-sqlite-log-blocker", dispatchCodexSqliteLogBlockerRequest],
   ]);
 }
 
@@ -188,6 +194,29 @@ function dispatchPetEventSoundRequest(client, nativeBridge, request, options) {
       ok: false,
     }, options));
   return true;
+}
+
+function dispatchCodexSqliteLogBlockerRequest(client, nativeBridge, request, options) {
+  // 这一段查询或应用 Codex SQLite 日志拦截状态，回包不包含本机路径或日志内容。
+  // Query or apply the Codex SQLite log blocker, returning no local paths or log content.
+  return dispatchResponseRequest(
+    client,
+    nativeBridge,
+    request,
+    options,
+    () => runCodexSqliteLogBlockerRequest(request),
+    "[Codex-Pro] Codex SQLite log blocker request failed",
+    () => ({
+      data: {
+        applied: false,
+        enabled: false,
+        state: "error",
+      },
+      error: "sqliteError",
+      ok: false,
+      status: 0,
+    }),
+  );
 }
 
 export function dispatchNativeBridgeRequest(client, nativeBridge, request, options = {}) {

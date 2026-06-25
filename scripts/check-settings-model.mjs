@@ -102,6 +102,10 @@ assert(
   "split-items hotpath patch should default to enabled",
 );
 assert(
+  settings.defaultSettings.enableCodexSqliteLogInsertBlocker === false,
+  "Codex SQLite log insert blocker should default to disabled",
+);
+assert(
   settings.defaultSettings.chatWidthMode === "official",
   "chat width should default to Codex's native mode",
 );
@@ -173,6 +177,7 @@ const savedSettings = settings.saveSettings({
   enableConversationArchiveSync: true,
   enableBackgroundWallpaper: true,
   enableChatWidthResizer: false,
+  enableCodexSqliteLogInsertBlocker: true,
   enableSplitItemsHotpathPatch: false,
   enableStartupSidebar: true,
   enableUsagePanel: false,
@@ -212,6 +217,7 @@ assert(savedSettings.enableConversationArchiveSidebar === false, "saveSettings s
 assert(savedSettings.enableConversationArchiveSync === true, "saveSettings should normalize changed archive sync switch");
 assert(savedSettings.enableBackgroundWallpaper === true, "saveSettings should allow changed background wallpaper switch to turn on");
 assert(savedSettings.enableChatWidthResizer === false, "saveSettings should allow changed chat width resizer switch to turn off");
+assert(savedSettings.enableCodexSqliteLogInsertBlocker === true, "saveSettings should allow Codex SQLite log blocker to turn on");
 assert(savedSettings.enableSplitItemsHotpathPatch === false, "saveSettings should allow split-items hotpath patch to turn off");
 assert(savedSettings.collapseSidebarOnStartup === true, "saveSettings should allow changed startup collapse switch to turn on");
 assert(savedSettings.enableStartupSidebar === true, "saveSettings should allow changed startup sidebar switch to turn on");
@@ -246,6 +252,7 @@ assert(rawSettings.enableConversationArchiveSidebar === false, "changed archive 
 assert(rawSettings.enableConversationArchiveSync === true, "changed archive sync switch should be stored as override");
 assert(rawSettings.enableBackgroundWallpaper === true, "changed background wallpaper switch should be stored as override");
 assert(rawSettings.enableChatWidthResizer === false, "changed chat width resizer switch should be stored as override");
+assert(rawSettings.enableCodexSqliteLogInsertBlocker === true, "changed Codex SQLite log blocker switch should be stored as override");
 assert(rawSettings.enableSplitItemsHotpathPatch === false, "changed split-items hotpath patch switch should be stored as override");
 assert(rawSettings.collapseSidebarOnStartup === true, "changed startup collapse switch should be stored as override");
 assert(rawSettings.enableStartupSidebar === true, "changed startup sidebar switch should be stored as override");
@@ -302,6 +309,7 @@ assert(rawSettings.collapseSidebarOnStartup === true, "partial metadata save sho
 assert(rawSettings.enableConversationArchiveSidebar === false, "partial metadata save should preserve archive sidebar switch");
 assert(rawSettings.enableBackgroundWallpaper === true, "partial metadata save should preserve background wallpaper switch");
 assert(rawSettings.enableChatWidthResizer === false, "partial metadata save should preserve chat width resizer switch");
+assert(rawSettings.enableCodexSqliteLogInsertBlocker === true, "partial metadata save should preserve Codex SQLite log blocker switch");
 assert(rawSettings.enableSplitItemsHotpathPatch === false, "partial metadata save should preserve split-items hotpath patch switch");
 assert(rawSettings.enableStartupSidebar === true, "partial metadata save should preserve startup sidebar switch");
 assert(rawSettings.enableUsagePanel === false, "partial metadata save should preserve ordinary boolean overrides");

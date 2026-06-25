@@ -87,6 +87,7 @@
     enableConversationArchiveSync: false,
     enableConversationArchiveSidebar: true,
     enableContextUsageInline: true,
+    enableCodexSqliteLogInsertBlocker: false,
     enableDiffHoverPreview: true,
     enableEditedFileCardExternalDiffMiddleClick: true,
     enableExternalDiffMiddleClick: true,
@@ -811,6 +812,10 @@
     {
       key: "enableContextUsageInline",
       normalize: (value) => normalizeEnabledSetting(value, defaultSettings.enableContextUsageInline),
+    },
+    {
+      key: "enableCodexSqliteLogInsertBlocker",
+      normalize: (value) => normalizeEnabledSetting(value, defaultSettings.enableCodexSqliteLogInsertBlocker),
     },
     {
       key: "enableDiffHoverPreview",

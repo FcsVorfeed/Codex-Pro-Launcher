@@ -1,4 +1,5 @@
 pub mod cloud_sync;
+pub mod codex_sqlite_log_blocker;
 pub mod conversation_archive;
 pub mod diff_hover_preview;
 pub mod mouse_gestures;

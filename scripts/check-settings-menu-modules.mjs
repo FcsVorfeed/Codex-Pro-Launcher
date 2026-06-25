@@ -219,8 +219,9 @@ const expectedSections = [
     id: "performance-fixes",
     modulePath: ["src", "inject", "systems", "performance-fixes", "settings.js"],
     ownerSystem: "split-items-hotpath-patch",
-    settingKeys: ["enableSplitItemsHotpathPatch"],
-    modifiedSettingKeys: ["enableSplitItemsHotpathPatch"],
+    requiresBind: true,
+    settingKeys: ["enableSplitItemsHotpathPatch", "enableCodexSqliteLogInsertBlocker"],
+    modifiedSettingKeys: ["enableSplitItemsHotpathPatch", "enableCodexSqliteLogInsertBlocker"],
   },
   {
     id: "update-check",
