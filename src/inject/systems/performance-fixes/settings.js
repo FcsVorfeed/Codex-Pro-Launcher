@@ -57,9 +57,38 @@
       // Attach the local SQLite trigger state to the settings page lifecycle and apply immediately after save.
       const statusElement = context.root.querySelector(sqliteLogBlockerStatusSelector);
       const renderStatus = (state, tone = "") => renderSqliteLogBlockerStatus(statusElement, state, tone);
-      context.addDialogOpenHandler(() => refreshSqliteLogBlockerStatus(renderStatus));
+      // 这一段记录当前已保存的开关值，避免保存其它设置时误撤销用户手工 workaround。
+      // Track the saved switch value so saving other settings does not undo a manual workaround.
+      let lastSavedSqliteLogBlockerEnabled = getDesiredSqliteLogBlockerEnabled();
+      let pendingSqliteLogBlockerRetryEnabled = null;
+      context.addDialogOpenHandler(() => {
+        void refreshSqliteLogBlockerStatus(renderStatus).then((response) => {
+          // 这一段用真实状态补上跨重载重试：设置期望开启但 trigger 未启用时，下一次保存会重试。
+          // Use the real state to restore cross-reload retries: if desired-on is not enabled, the next save retries.
+          if (getDesiredSqliteLogBlockerEnabled() && responseState(response) !== "enabled") {
+            pendingSqliteLogBlockerRetryEnabled = true;
+          }
+        });
+      });
       context.registerAfterSaveHandler((savedSettings) => {
-        applySqliteLogBlockerDesiredState(savedSettings, renderStatus);
+        // 这一段只在用户明确改变开关或上次同目标应用失败时应用 schema 变更。
+        // Apply schema changes only when the switch changed or the same target needs a retry after failure.
+        const nextEnabled = getDesiredSqliteLogBlockerEnabled(savedSettings);
+        const shouldRetry = pendingSqliteLogBlockerRetryEnabled === nextEnabled;
+        if (nextEnabled === lastSavedSqliteLogBlockerEnabled && !shouldRetry) return;
+        lastSavedSqliteLogBlockerEnabled = nextEnabled;
+        pendingSqliteLogBlockerRetryEnabled = nextEnabled;
+        void applySqliteLogBlockerDesiredState(savedSettings, renderStatus).then((response) => {
+          // 这一段只在本机 schema 变更成功后清掉重试标记，失败时允许用户直接再次保存重试。
+          // Clear the retry marker only after native schema work succeeds so failed applies can be retried by saving again.
+          if (response?.ok === true && pendingSqliteLogBlockerRetryEnabled === nextEnabled) {
+            pendingSqliteLogBlockerRetryEnabled = null;
+          }
+        }).catch(() => {
+          // 这一段把异常收敛成页面错误状态，待重试标记保留给下一次保存。
+          // Collapse unexpected failures into an error state while keeping the retry marker for the next save.
+          renderStatus("error", "error");
+        });
       });
     },
   });

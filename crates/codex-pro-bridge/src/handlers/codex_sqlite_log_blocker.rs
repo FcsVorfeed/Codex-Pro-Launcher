@@ -16,6 +16,14 @@ const LOG_BLOCKER_BUSY_TIMEOUT: Duration = Duration::from_millis(750);
 /// 这一段定义创建拦截 trigger 的 SQL。
 /// SQL used to create the log insert blocker trigger.
 const CREATE_LOG_BLOCKER_TRIGGER_SQL: &str = "CREATE TRIGGER IF NOT EXISTS block_log_inserts BEFORE INSERT ON logs BEGIN SELECT RAISE(IGNORE); END;";
+/// 这一段定义 SQLite schema 中兼容 trigger 的规范化 SQL 形态。
+/// Normalized SQL shape for a compatible trigger stored in sqlite_schema.
+const EXPECTED_LOG_BLOCKER_TRIGGER_SCHEMA_SQL: &str =
+    "CREATE TRIGGER BLOCK_LOG_INSERTS BEFORE INSERT ON LOGS BEGIN SELECT RAISE(IGNORE); END";
+/// 这一段定义源码创建语句的规范化 SQL 形态，兼容直接检查常量的测试。
+/// Normalized SQL shape for the source creation statement, used by direct constant checks.
+const EXPECTED_LOG_BLOCKER_TRIGGER_CREATE_SQL: &str =
+    "CREATE TRIGGER IF NOT EXISTS BLOCK_LOG_INSERTS BEFORE INSERT ON LOGS BEGIN SELECT RAISE(IGNORE); END";
 /// 这一段定义删除拦截 trigger 的 SQL。
 /// SQL used to drop the log insert blocker trigger.
 const DROP_LOG_BLOCKER_TRIGGER_SQL: &str = "DROP TRIGGER IF EXISTS block_log_inserts;";
@@ -172,8 +180,21 @@ fn apply_status_response(db_path: &PathBuf, enabled: bool) -> Value {
         if let Err(error) = connection.execute_batch(CREATE_LOG_BLOCKER_TRIGGER_SQL) {
             return sqlite_error_response(error);
         }
-    } else if let Err(error) = connection.execute_batch(DROP_LOG_BLOCKER_TRIGGER_SQL) {
-        return sqlite_error_response(error);
+    } else {
+        // 这一段只删除我们确认兼容的 trigger；同名冲突 trigger 交给用户处理。
+        // Drop only the trigger shape we recognize; leave conflicting same-name triggers to the user.
+        match read_trigger_state(&connection) {
+            Ok(LogBlockerTriggerState::Installed) => {
+                if let Err(error) = connection.execute_batch(DROP_LOG_BLOCKER_TRIGGER_SQL) {
+                    return sqlite_error_response(error);
+                }
+            }
+            Ok(LogBlockerTriggerState::Missing) => {}
+            Ok(LogBlockerTriggerState::Conflict) => {
+                return failure_response("triggerConflict", false, "triggerConflict", 409);
+            }
+            Err(error) => return sqlite_error_response(error),
+        }
     }
     match read_trigger_state(&connection) {
         Ok(LogBlockerTriggerState::Installed) => success_response("enabled", true, enabled),
@@ -232,17 +253,25 @@ fn read_trigger_state(connection: &Connection) -> rusqlite::Result<LogBlockerTri
 }
 
 fn is_expected_log_blocker_trigger_sql(sql: &str) -> bool {
-    // 这一段做宽松签名检查，避免 SQLite 格式化大小写差异影响识别。
-    // Use a loose signature check so SQLite formatting and casing differences do not affect detection.
-    let normalized = sql
+    // 这一段只接受精确的兼容 trigger 形态，避免关闭时删除带 WHEN 或额外语句的用户 trigger。
+    // Accept only the exact compatible trigger shape so disabling cannot delete user triggers with WHEN or extra statements.
+    let normalized = normalize_trigger_sql(sql);
+    normalized == EXPECTED_LOG_BLOCKER_TRIGGER_SCHEMA_SQL
+        || normalized == EXPECTED_LOG_BLOCKER_TRIGGER_CREATE_SQL
+}
+
+fn normalize_trigger_sql(sql: &str) -> String {
+    // 这一段只折叠空白、统一大小写并去掉末尾分号，不改变 SQL 结构本身。
+    // Collapse whitespace, normalize casing, and trim trailing semicolons without changing the SQL structure itself.
+    let mut normalized = sql
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
         .to_ascii_uppercase();
-    normalized.contains("CREATE TRIGGER")
-        && normalized.contains("BLOCK_LOG_INSERTS")
-        && normalized.contains("BEFORE INSERT ON LOGS")
-        && normalized.contains("RAISE(IGNORE)")
+    while normalized.ends_with(';') {
+        normalized.pop();
+    }
+    normalized
 }
 
 fn success_response(state: &str, enabled: bool, applied: bool) -> Value {
@@ -301,6 +330,16 @@ mod tests {
     }
 
     #[test]
+    fn trigger_signature_rejects_conditional_or_extra_sql() {
+        assert!(!is_expected_log_blocker_trigger_sql(
+            "CREATE TRIGGER block_log_inserts BEFORE INSERT ON logs WHEN 1 BEGIN SELECT RAISE(IGNORE); END;"
+        ));
+        assert!(!is_expected_log_blocker_trigger_sql(
+            "CREATE TRIGGER block_log_inserts BEFORE INSERT ON logs BEGIN SELECT RAISE(IGNORE); SELECT 1; END;"
+        ));
+    }
+
+    #[test]
     fn apply_creates_and_drops_trigger() {
         let temp = tempfile::NamedTempFile::new().unwrap();
         let db_path = temp.path().to_path_buf();
@@ -328,5 +367,29 @@ mod tests {
         let response = apply_status_response(&db_path, true);
         assert_eq!(response["ok"], false);
         assert_eq!(response["data"]["state"], "missingLogsTable");
+    }
+
+    #[test]
+    fn apply_disable_preserves_conflicting_trigger() {
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        let db_path = temp.path().to_path_buf();
+        let connection = Connection::open(&db_path).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE logs(id INTEGER);
+                 CREATE TRIGGER block_log_inserts AFTER INSERT ON logs BEGIN SELECT 1; END;",
+            )
+            .unwrap();
+        drop(connection);
+
+        let response = apply_status_response(&db_path, false);
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["data"]["state"], "triggerConflict");
+
+        let connection = Connection::open(&db_path).unwrap();
+        assert_eq!(
+            read_trigger_state(&connection).unwrap(),
+            LogBlockerTriggerState::Conflict
+        );
     }
 }

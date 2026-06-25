@@ -11,6 +11,8 @@ const logDatabaseFileName = "logs_2.sqlite";
 const logBlockerTriggerName = "block_log_inserts";
 const createLogBlockerTriggerSql = "CREATE TRIGGER IF NOT EXISTS block_log_inserts BEFORE INSERT ON logs BEGIN SELECT RAISE(IGNORE); END;";
 const dropLogBlockerTriggerSql = "DROP TRIGGER IF EXISTS block_log_inserts;";
+const expectedLogBlockerTriggerSchemaSql = "CREATE TRIGGER BLOCK_LOG_INSERTS BEFORE INSERT ON LOGS BEGIN SELECT RAISE(IGNORE); END";
+const expectedLogBlockerTriggerCreateSql = "CREATE TRIGGER IF NOT EXISTS BLOCK_LOG_INSERTS BEFORE INSERT ON LOGS BEGIN SELECT RAISE(IGNORE); END";
 
 export function parseCodexSqliteLogBlockerRequest(request) {
   // 这一段只接受短 request id、固定动作和布尔目标状态，不让页面传本机路径或 SQL。
@@ -85,7 +87,11 @@ function applyStatusResponse(dbPath, enabled) {
       if (readTriggerState(db) === "conflict") return failureResponse("triggerConflict", false, "triggerConflict", 409);
       db.exec(createLogBlockerTriggerSql);
     } else {
-      db.exec(dropLogBlockerTriggerSql);
+      // 这一段只删除我们确认兼容的 trigger；同名冲突 trigger 交给用户处理。
+      // Drop only the trigger shape we recognize; leave conflicting same-name triggers to the user.
+      const state = readTriggerState(db);
+      if (state === "conflict") return failureResponse("triggerConflict", false, "triggerConflict", 409);
+      if (state === "installed") db.exec(dropLogBlockerTriggerSql);
     }
     const state = readTriggerState(db);
     if (state === "installed") return successResponse("enabled", true, enabled);
@@ -132,13 +138,17 @@ function readTriggerState(db) {
 }
 
 function isExpectedLogBlockerTriggerSql(sql) {
-  // 这一段做宽松签名检查，避免 SQLite 格式化大小写差异影响识别。
-  // Use a loose signature check so SQLite formatting and casing differences do not affect detection.
-  const normalized = String(sql || "").split(/\s+/u).join(" ").toUpperCase();
-  return normalized.includes("CREATE TRIGGER") &&
-    normalized.includes("BLOCK_LOG_INSERTS") &&
-    normalized.includes("BEFORE INSERT ON LOGS") &&
-    normalized.includes("RAISE(IGNORE)");
+  // 这一段只接受精确的兼容 trigger 形态，避免关闭时删除带 WHEN 或额外语句的用户 trigger。
+  // Accept only the exact compatible trigger shape so disabling cannot delete user triggers with WHEN or extra statements.
+  const normalized = normalizeTriggerSql(sql);
+  return normalized === expectedLogBlockerTriggerSchemaSql ||
+    normalized === expectedLogBlockerTriggerCreateSql;
+}
+
+function normalizeTriggerSql(sql) {
+  // 这一段只折叠空白、统一大小写并去掉末尾分号，不改变 SQL 结构本身。
+  // Collapse whitespace, normalize casing, and trim trailing semicolons without changing the SQL structure itself.
+  return String(sql || "").split(/\s+/u).join(" ").toUpperCase().replace(/;+$/u, "");
 }
 
 function successResponse(state, enabled, applied) {

@@ -1,5 +1,7 @@
-import { readFile, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const mainPath = path.join(rootDir, "src", "launcher", "native-bridge.mjs");
@@ -544,6 +546,10 @@ const {
   readPetEventSound,
 } = await import("../src/launcher/native-bridge/handlers/pet-event-sound.mjs");
 const {
+  parseCodexSqliteLogBlockerRequest,
+  runCodexSqliteLogBlockerRequest,
+} = await import("../src/launcher/native-bridge/handlers/codex-sqlite-log-blocker.mjs");
+const {
   dispatchNativeBridgeRequest,
   parseNativeBridgeRequest,
 } = await import("../src/launcher/native-bridge/router.mjs");
@@ -708,6 +714,22 @@ assert(
   (await readPetEventSound({ path: "//server/share/sound.wav", requestId: "req_sound" })).error === "invalidPath",
   "pet event sound reader should reject UNC-style network paths",
 );
+assert(
+  parseCodexSqliteLogBlockerRequest({ action: "status", requestId: "req_sqlite" })?.type === "codex-sqlite-log-blocker",
+  "valid Codex SQLite log blocker status request should parse",
+);
+assert(
+  parseCodexSqliteLogBlockerRequest({ action: "apply", enabled: true, requestId: "req_sqlite" })?.enabled === true,
+  "valid Codex SQLite log blocker apply request should preserve enabled state",
+);
+assert(
+  parseCodexSqliteLogBlockerRequest({ action: "apply", enabled: true, requestId: "bad request id" }) === null,
+  "Codex SQLite log blocker parser should reject invalid request ids",
+);
+assert(
+  parseCodexSqliteLogBlockerRequest({ action: "drop", requestId: "req_sqlite" }) === null,
+  "Codex SQLite log blocker parser should reject unknown actions",
+);
 const routedPetEventSoundRequest = parseNativeBridgeRequest(
   {
     name: bridge.bindingName,
@@ -721,6 +743,111 @@ const routedPetEventSoundRequest = parseNativeBridgeRequest(
   bridge,
 );
 assert(routedPetEventSoundRequest?.type === "pet-event-sound", "router should parse pet event sound requests");
+
+const sqliteLogBlockerHome = await mkdtemp(path.join(tmpdir(), "codex-pro-sqlite-log-blocker-"));
+const previousCodexHome = process.env.CODEX_HOME;
+try {
+  // 这一段把 Node legacy handler 指向临时 Codex home，避免测试触碰真实日志库。
+  // Point the Node legacy handler at a temporary Codex home so the test never touches the real log database.
+  process.env.CODEX_HOME = sqliteLogBlockerHome;
+  const sqliteLogBlockerDbPath = path.join(sqliteLogBlockerHome, "logs_2.sqlite");
+  const sqliteLogBlockerDb = new DatabaseSync(sqliteLogBlockerDbPath);
+  sqliteLogBlockerDb.exec("CREATE TABLE logs(id INTEGER);");
+  sqliteLogBlockerDb.close();
+
+  // 这一段验证 Node fallback handler 的 status/apply/dispatch 行为，而不只做源码字符串检查。
+  // Verify Node fallback status/apply/dispatch behavior instead of relying only on source string checks.
+  const sqliteStatusBefore = await runCodexSqliteLogBlockerRequest({
+    action: "status",
+    enabled: false,
+    requestId: "req_sqlite_status",
+    type: "codex-sqlite-log-blocker",
+  });
+  assert(sqliteStatusBefore.data?.state === "disabled", "Codex SQLite log blocker status should start disabled");
+  const sqliteEnabled = await runCodexSqliteLogBlockerRequest({
+    action: "apply",
+    enabled: true,
+    requestId: "req_sqlite_enable",
+    type: "codex-sqlite-log-blocker",
+  });
+  assert(sqliteEnabled.ok === true && sqliteEnabled.data?.enabled === true, "Codex SQLite log blocker apply should enable trigger");
+
+  const routedCodexSqliteLogBlockerRequest = parseNativeBridgeRequest(
+    {
+      name: bridge.bindingName,
+      payload: JSON.stringify({
+        action: "status",
+        bridgeId: bridge.bridgeId,
+        requestId: "req_sqlite_routed",
+        type: "codex-sqlite-log-blocker",
+      }),
+    },
+    bridge,
+  );
+  assert(routedCodexSqliteLogBlockerRequest?.type === "codex-sqlite-log-blocker", "router should parse Codex SQLite log blocker requests");
+
+  const sqliteLogBlockerResponses = [];
+  assert(
+    dispatchNativeBridgeRequest(
+      {},
+      bridge,
+      routedCodexSqliteLogBlockerRequest,
+      {
+        sendNativeBridgeResponse: async (...args) => {
+          sqliteLogBlockerResponses.push(args);
+        },
+      },
+    ) === true,
+    "router should dispatch Codex SQLite log blocker requests",
+  );
+  await flushAsyncHandlers();
+  assert(sqliteLogBlockerResponses[0]?.[2] === "req_sqlite_routed", "Codex SQLite log blocker dispatch should preserve request id");
+  assert(sqliteLogBlockerResponses[0]?.[3] === "codex-sqlite-log-blocker", "Codex SQLite log blocker dispatch should preserve response type");
+  assert(sqliteLogBlockerResponses[0]?.[4]?.data?.state === "enabled", "Codex SQLite log blocker dispatch should return native status");
+
+  const sqliteDisabled = await runCodexSqliteLogBlockerRequest({
+    action: "apply",
+    enabled: false,
+    requestId: "req_sqlite_disable",
+    type: "codex-sqlite-log-blocker",
+  });
+  assert(sqliteDisabled.ok === true && sqliteDisabled.data?.state === "disabled", "Codex SQLite log blocker apply should disable trigger");
+
+  for (const [label, conflictSql] of [
+    ["after-trigger", "CREATE TRIGGER block_log_inserts AFTER INSERT ON logs BEGIN SELECT 1; END;"],
+    ["conditional-trigger", "CREATE TRIGGER block_log_inserts BEFORE INSERT ON logs WHEN 1 BEGIN SELECT RAISE(IGNORE); END;"],
+    ["extra-statement-trigger", "CREATE TRIGGER block_log_inserts BEFORE INSERT ON logs BEGIN SELECT RAISE(IGNORE); SELECT 1; END;"],
+  ]) {
+    // 这一段验证关闭路径不会删除同名但不完全等价的用户 trigger。
+    // Verify the disable path does not delete same-name user triggers that are not exactly equivalent.
+    const sqliteConflictDb = new DatabaseSync(sqliteLogBlockerDbPath);
+    sqliteConflictDb.exec(conflictSql);
+    sqliteConflictDb.close();
+    const sqliteConflictDisable = await runCodexSqliteLogBlockerRequest({
+      action: "apply",
+      enabled: false,
+      requestId: `req_sqlite_conflict_${label}`,
+      type: "codex-sqlite-log-blocker",
+    });
+    assert(sqliteConflictDisable.ok === false, `Codex SQLite log blocker disable should reject ${label}`);
+    assert(sqliteConflictDisable.data?.state === "triggerConflict", `Codex SQLite log blocker disable should report ${label} conflicts`);
+
+    // 这一段只清理临时测试库里的冲突 trigger，避免下一轮同名 trigger 创建失败。
+    // Clean only the temporary test database conflict trigger so the next same-name trigger can be created.
+    const sqliteCleanupDb = new DatabaseSync(sqliteLogBlockerDbPath);
+    sqliteCleanupDb.exec("DROP TRIGGER block_log_inserts;");
+    sqliteCleanupDb.close();
+  }
+} finally {
+  // 这一段恢复环境变量并清理临时库，避免影响后续检查。
+  // Restore the environment variable and remove the temporary database so later checks are unaffected.
+  if (previousCodexHome === undefined) {
+    delete process.env.CODEX_HOME;
+  } else {
+    process.env.CODEX_HOME = previousCodexHome;
+  }
+  await rm(sqliteLogBlockerHome, { force: true, recursive: true });
+}
 
 const shortcutDispatches = [];
 assert(

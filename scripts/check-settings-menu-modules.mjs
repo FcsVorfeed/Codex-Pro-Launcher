@@ -824,6 +824,7 @@ const cloudSyncSectionSource = await readFile(pathFromParts(["src", "inject", "s
 const petSyncSectionSource = await readFile(pathFromParts(["src", "inject", "systems", "settings-menu", "sections", "pet-sync.js"]), "utf8");
 const conversationArchiveSectionSource = await readFile(pathFromParts(["src", "inject", "systems", "settings-menu", "sections", "conversation-archive.js"]), "utf8");
 const usagePanelSettingsSource = await readFile(pathFromParts(["src", "inject", "systems", "usage-panel", "settings.js"]), "utf8");
+const performanceFixesSettingsSource = await readFile(pathFromParts(["src", "inject", "systems", "performance-fixes", "settings.js"]), "utf8");
 const rustCloudSyncSource = await readFile(rustCloudSyncPath, "utf8");
 const rustSyncLicenseSource = await readFile(rustSyncLicensePath, "utf8");
 const requiredBindingGuard = viewSource.match(/if\s*\(\s*([\s\S]*?)\s*\)\s*\{\s*return;\s*\}\s*\n\s*\/\/ 这一段默认打开/u)?.[1] || "";
@@ -1053,6 +1054,15 @@ assert(
 assert(
   cloudSyncSource.includes('new Set(["hidden", "observer", "official"])') && cloudSyncSource.includes('Object.hasOwn(payload, "usagePanelTodayTokenSource")'),
   "settings-menu cloud sync must sanitize Today token source values",
+);
+assert(
+  performanceFixesSettingsSource.includes("lastSavedSqliteLogBlockerEnabled") &&
+    performanceFixesSettingsSource.includes("pendingSqliteLogBlockerRetryEnabled") &&
+    performanceFixesSettingsSource.includes("nextEnabled === lastSavedSqliteLogBlockerEnabled") &&
+    performanceFixesSettingsSource.includes("responseState(response) !== \"enabled\"") &&
+    performanceFixesSettingsSource.includes("pendingSqliteLogBlockerRetryEnabled = true") &&
+    performanceFixesSettingsSource.includes("pendingSqliteLogBlockerRetryEnabled = null"),
+  "performance fixes settings must apply the SQLite log blocker only when its switch changes or retry is needed",
 );
 assert(
   cloudSyncSource.includes("getSyncLicenseGate") &&
