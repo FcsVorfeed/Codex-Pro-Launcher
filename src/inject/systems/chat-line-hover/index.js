@@ -5,10 +5,13 @@
   const systemName = "chat-line-hover";
   const styleId = "codex-pro-chat-line-hover-style";
   const lineId = "codex-pro-chat-line-hover";
-  const maxBlockTextLength = 6000;
-  const maxLineRectCount = 160;
   const pointTolerancePixels = 3;
   const minimumLineWidthPixels = 12;
+  const chatTextRootSelector = [
+    "[data-selected-text-overlay-target]",
+    "[data-user-message-bubble='true'] [class*='whitespace-pre-wrap']",
+    "[class*='_markdownContent_']",
+  ].join(",");
   const excludedAncestorSelector = [
     "#codex-pro-settings-root",
     "#codex-pro-diff-hover-preview",
@@ -102,6 +105,13 @@
       x <= rect.right + pointTolerancePixels;
   }
 
+  function parseCssPixels(value) {
+    // 这一段只把 CSS 像素字符串转换为数字，非法值按 0 处理以保持布局计算可用。
+    // Convert CSS pixel strings into numbers and treat invalid values as 0 so layout math stays usable.
+    const number = Number.parseFloat(value);
+    return Number.isFinite(number) ? number : 0;
+  }
+
   function getParentElement(node) {
     // 这一段把文本节点和元素节点统一转换成可继续向上检查的元素。
     // Normalize text and element nodes into an element that can be walked upward.
@@ -119,15 +129,27 @@
     return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity) !== 0;
   }
 
+  function findChatTextRoot(textNode) {
+    // 这一段正向定位聊天消息正文 root，新窗口或状态浮窗不会仅因为在 main 里就被接受。
+    // Positively locate the chat-message text root so panels are not accepted merely because they live in main.
+    const parent = getParentElement(textNode);
+    if (!parent || parent.closest(excludedAncestorSelector)) return null;
+    const textRoot = parent.closest(chatTextRootSelector);
+    if (!(textRoot instanceof HTMLElement) || !isVisibleElement(textRoot)) return null;
+    const messageUnit = textRoot.closest("[data-content-search-unit-key]");
+    if (!(messageUnit instanceof HTMLElement) || !messageUnit.closest("main")) return null;
+    const messageKey = String(messageUnit.getAttribute("data-content-search-unit-key") || "");
+    if (!/:(assistant|user)$/u.test(messageKey)) return null;
+    return textRoot;
+  }
+
   function isChatTextNode(textNode) {
-    // 这一段用结构和可见性判断聊天正文候选，不依赖任何中文或英文界面文案。
-    // Identify chat-content candidates by structure and visibility, never by localized UI copy.
+    // 这一段只接受真实聊天消息正文里的文本节点，不依赖任何中文或英文界面文案。
+    // Accept only text nodes inside real chat-message text roots, never localized UI copy.
     if (textNode?.nodeType !== Node.TEXT_NODE || !String(textNode.nodeValue || "").trim()) return false;
     const parent = getParentElement(textNode);
     if (!parent || !isVisibleElement(parent)) return false;
-    if (!parent.closest("main")) return false;
-    if (parent.closest(excludedAncestorSelector)) return false;
-    return true;
+    return Boolean(findChatTextRoot(textNode));
   }
 
   function getCaretRangeFromPoint(x, y) {
@@ -209,46 +231,61 @@
     // 这一段从文本节点向上找最近的局部文本块，找不到时回到父元素。
     // Walk upward from the text node to the nearest local text block, falling back to the parent.
     const parent = getParentElement(textNode);
+    const textRoot = findChatTextRoot(textNode);
     for (let element = parent; element instanceof HTMLElement && element !== document.body; element = element.parentElement) {
       if (element.closest(excludedAncestorSelector)) return parent;
       if (isLineBlockCandidate(element)) return element;
+      if (element === textRoot) break;
     }
     return parent;
   }
 
-  function mergeLineRects(rects, y) {
-    // 这一段把同一视觉行上的多个 inline 片段合并成一条线的位置。
-    // Merge multiple inline fragments on the same visual row into one line position.
-    const lineRects = rects.filter((rect) => rectContainsY(rect, y));
-    if (!lineRects.length || lineRects.length > maxLineRectCount) return null;
-    const left = Math.min(...lineRects.map((rect) => rect.left));
-    const right = Math.max(...lineRects.map((rect) => rect.right));
-    const bottom = Math.max(...lineRects.map((rect) => rect.bottom));
-    const top = Math.min(...lineRects.map((rect) => rect.top));
-    return { bottom, left, right, top };
+  function getLineBlockContentRect(block) {
+    // 这一段读取最近局部文本块的内容盒宽度，避免测量整段聊天文本。
+    // Read the nearest local text block's content box width without measuring the whole chat text.
+    if (!(block instanceof HTMLElement)) return null;
+    const blockRect = block.getBoundingClientRect();
+    if (!isUsableRect(blockRect)) return null;
+    const style = window.getComputedStyle(block);
+    const left = blockRect.left +
+      parseCssPixels(style.borderLeftWidth) +
+      parseCssPixels(style.paddingLeft);
+    const right = blockRect.right -
+      parseCssPixels(style.borderRightWidth) -
+      parseCssPixels(style.paddingRight);
+    if (right - left < minimumLineWidthPixels) return null;
+    return {
+      bottom: blockRect.bottom,
+      left,
+      right,
+      top: blockRect.top,
+    };
   }
 
-  function getBlockLineRect(textNode, sourceRect, y) {
-    // 这一段只在短文本块内合并整行；超长代码块或大段落直接退回文本节点片段。
-    // Merge the full row only inside short blocks; huge code blocks or paragraphs fall back to the text fragment.
+  function getExpandedLineRect(textNode, sourceRect, y) {
+    // 这一段把线条横向扩展到当前文本块内容宽度，纵向仍锁定当前命中文本行。
+    // Expand the line horizontally to the current text block content width while keeping the hit row vertically locked.
     const block = findLineBlock(textNode);
-    if (!(block instanceof HTMLElement)) return sourceRect;
-    if (String(block.textContent || "").length > maxBlockTextLength) return sourceRect;
-    const range = document.createRange();
-    range.selectNodeContents(block);
-    const mergedRect = mergeLineRects(getRangeRects(range), y);
-    range.detach?.();
-    return mergedRect || sourceRect;
+    const contentRect = getLineBlockContentRect(block);
+    if (!contentRect || !rectContainsY(contentRect, y)) return sourceRect;
+    return {
+      bottom: sourceRect.bottom,
+      left: contentRect.left,
+      right: contentRect.right,
+      top: sourceRect.top,
+    };
   }
 
-  function computeLineRect(x, y) {
+  function computeLineRect(x, y, options = {}) {
     // 这一段完成一次鼠标坐标到行矩形的转换；失败时返回 null 让 UI 隐藏。
     // Convert one pointer coordinate into a line rectangle; return null on any miss so the UI hides.
     const textNode = findTextNodeAtPoint(x, y);
     if (!textNode) return null;
     const textRect = getTextNodePointRect(textNode, x, y);
     if (!textRect) return null;
-    const lineRect = getBlockLineRect(textNode, textRect, y);
+    const lineRect = options.expandToLine === true
+      ? getExpandedLineRect(textNode, textRect, y)
+      : textRect;
     const left = Math.max(0, Math.floor(lineRect.left));
     const right = Math.min(window.innerWidth, Math.ceil(lineRect.right));
     if (right - left < minimumLineWidthPixels) return null;
@@ -279,6 +316,7 @@
 
     installStyles();
     const line = ensureLine(controller.signal);
+    let expandToLine = (runtime.systemModules.settingsMenu?.settings?.getSettings?.() || {}).expandChatLineHoverToLine === true;
     let frameId = 0;
     let lastPointer = null;
 
@@ -299,7 +337,7 @@
           hideLine();
           return;
         }
-        placeLine(line, computeLineRect(lastPointer.x, lastPointer.y));
+        placeLine(line, computeLineRect(lastPointer.x, lastPointer.y, { expandToLine }));
       });
     }
 
@@ -334,9 +372,10 @@
     }, { once: true });
 
     return {
-      sync() {
+      sync(settings = {}) {
         // 这一段设置变化时只按最后鼠标位置重算；开关关闭由 runtime 统一 abort。
         // On setting changes, just recompute against the last pointer; runtime handles abort when disabled.
+        expandToLine = settings.expandChatLineHoverToLine === true;
         if (lastPointer) scheduleUpdate(lastPointer);
       },
     };

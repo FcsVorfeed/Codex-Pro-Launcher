@@ -348,6 +348,7 @@ fn cloud_sync_allowed_setting_keys() -> HashSet<&'static str> {
         "diffHoverFileOpenMode",
         "diffHoverPreviewFontSize",
         "enableBackgroundWallpaper",
+        "enableChatLineHover",
         "enableChatWidthResizer",
         "enableConversationArchiveSidebar",
         "conversationArchiveSidebarDirectoryPanelMode",
@@ -363,6 +364,7 @@ fn cloud_sync_allowed_setting_keys() -> HashSet<&'static str> {
         "enableStartupSidebar",
         "enableTabDragToChat",
         "enableUsagePanel",
+        "expandChatLineHoverToLine",
         "hiddenFileTreePatterns",
         "mouseGestureShortcuts",
         "showContextUsageInline",
@@ -437,6 +439,8 @@ mod tests {
                 "syncKey": "1234567890123456",
                 "settings": {
                     "uiLanguage": "zh-CN",
+                    "enableChatLineHover": true,
+                    "expandChatLineHoverToLine": true,
                     "enableChatWidthResizer": true,
                     "chatWidthMode": "custom",
                     "chatWidthPixels": 1320,
@@ -446,6 +450,8 @@ mod tests {
             }
         })).unwrap();
         assert_eq!(request.body["settings"]["uiLanguage"], "zh-CN");
+        assert_eq!(request.body["settings"]["enableChatLineHover"], true);
+        assert_eq!(request.body["settings"]["expandChatLineHoverToLine"], true);
         assert_eq!(request.body["settings"]["enableChatWidthResizer"], true);
         assert_eq!(request.body["settings"]["chatWidthMode"], "custom");
         assert_eq!(request.body["settings"]["chatWidthPixels"], 1320);

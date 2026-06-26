@@ -16,22 +16,30 @@
 
   settingsMenu.registerSection({
     icon,
+    fieldDependencies: {
+      expandChatLineHoverToLine: "enableChatLineHover",
+    },
     id: "chat-line-hover",
     labelKey: "settings.chatLineHover.label",
     noteKey: "settings.chatLineHover.note",
     order: 36,
-    settingKeys: ["enableChatLineHover"],
+    settingKeys: ["enableChatLineHover", "expandChatLineHoverToLine"],
     sourcePath: "src/inject/systems/chat-line-hover/settings.js",
     sourceSystem: "chat-line-hover",
     titleKey: "settings.chatLineHover.title",
     render() {
       // 这一段只声明聊天行悬浮线开关，鼠标命中和绘制逻辑留在 chat-line-hover 系统内。
-      // Declare only the chat-line hover switch; pointer hit-testing and rendering stay in the chat-line-hover system.
+      // Declare only chat-line hover switches; pointer hit-testing and rendering stay in the chat-line-hover system.
       return `
         ${controls.renderSwitchField({
           helpKey: "settings.chatLineHover.enable.help",
           key: "enableChatLineHover",
           labelKey: "settings.chatLineHover.enable.label",
+        })}
+        ${controls.renderSwitchField({
+          helpKey: "settings.chatLineHover.expand.help",
+          key: "expandChatLineHoverToLine",
+          labelKey: "settings.chatLineHover.expand.label",
         })}
       `;
     },

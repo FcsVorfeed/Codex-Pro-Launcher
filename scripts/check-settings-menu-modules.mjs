@@ -203,7 +203,10 @@ const expectedSections = [
     id: "chat-line-hover",
     modulePath: ["src", "inject", "systems", "chat-line-hover", "settings.js"],
     ownerSystem: "chat-line-hover",
-    settingKeys: ["enableChatLineHover"],
+    settingKeys: ["enableChatLineHover", "expandChatLineHoverToLine"],
+    fieldDependencies: {
+      expandChatLineHoverToLine: "enableChatLineHover",
+    },
   },
   {
     id: "file-tree",

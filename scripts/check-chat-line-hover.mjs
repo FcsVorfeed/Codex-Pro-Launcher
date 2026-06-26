@@ -42,17 +42,26 @@ assertIncludes(runtimeSource, 'const systemName = "chat-line-hover"', "runtime m
 assertIncludes(runtimeSource, 'const lineId = "codex-pro-chat-line-hover"', "runtime must use one stable overlay id");
 assertIncludes(runtimeSource, "runtime.registerSystem(systemName", "runtime must register the system");
 assertIncludes(runtimeSource, 'enableSetting: "enableChatLineHover"', "runtime must be controlled by the settings switch");
+assertIncludes(runtimeSource, "expandChatLineHoverToLine === true", "runtime must read the full-row guide setting");
 assertIncludes(runtimeSource, "window.requestAnimationFrame", "runtime must coalesce pointer movement with requestAnimationFrame");
 assertIncludes(runtimeSource, "document.caretRangeFromPoint", "runtime must use point-based text hit testing");
 assertIncludes(runtimeSource, "document.caretPositionFromPoint", "runtime must keep the standards fallback for point hit testing");
 assertIncludes(runtimeSource, "document.elementFromPoint", "runtime must use only the current pointer target for fallback");
 assertIncludes(runtimeSource, "document.createTreeWalker", "runtime fallback must stay scoped to the current hit element");
 assertIncludes(runtimeSource, "visited < 80", "runtime fallback scan must be capped");
-assertIncludes(runtimeSource, "maxBlockTextLength = 6000", "runtime must cap block text length before full-line rect merging");
-assertIncludes(runtimeSource, "maxLineRectCount = 160", "runtime must cap line rectangle merging");
-assertIncludes(runtimeSource, "range.selectNodeContents(block)", "runtime may merge only the local block line, not the full conversation");
-assertIncludes(runtimeSource, "parent.closest(\"main\")", "runtime must require the text to belong to the main content area");
-assertIncludes(runtimeSource, "excludedAncestorSelector", "runtime must exclude composer, settings, sidebars, and plugin overlays");
+assertIncludes(runtimeSource, "getLineBlockContentRect", "runtime must expand full-row mode through a local text block content box");
+assertIncludes(runtimeSource, "window.getComputedStyle(block)", "runtime must account for local block padding in full-row mode");
+assertIncludes(runtimeSource, "findChatTextRoot", "runtime must use positive chat-message text-root gating");
+assertIncludes(runtimeSource, "chatTextRootSelector", "runtime must keep chat text root selectors centralized");
+assertIncludes(runtimeSource, "[data-selected-text-overlay-target]", "runtime must accept official assistant message text roots");
+assertIncludes(runtimeSource, "[data-user-message-bubble='true'] [class*='whitespace-pre-wrap']", "runtime must accept official user message bubble text roots");
+assertIncludes(runtimeSource, "[data-content-search-unit-key]", "runtime must require an official message unit ancestor");
+assertIncludes(runtimeSource, "/:(assistant|user)$/u", "runtime must require user or assistant message units");
+assertIncludes(runtimeSource, "messageUnit.closest(\"main\")", "runtime must require the message unit to belong to the main content area");
+assertIncludes(runtimeSource, "excludedAncestorSelector", "runtime must keep a small safety exclusion for composer, settings, sidebars, and plugin overlays");
+assertNotIncludes(runtimeSource, "summary-panel-row", "runtime must not chase right-side summary panel exclusions instead of positive chat roots");
+assertNotIncludes(runtimeSource, "codex-pro-environment-usage-row", "runtime must not chase environment-panel exclusions instead of positive chat roots");
+assertNotIncludes(runtimeSource, "composer-surface-chrome", "runtime must not chase composer chrome exclusions instead of positive chat roots");
 assertIncludes(runtimeSource, "pointer-events: none", "overlay must not capture chat clicks");
 assertIncludes(runtimeSource, "opacity 140ms ease", "overlay must fade in and out instead of toggling display immediately");
 assertIncludes(runtimeSource, "left 70ms cubic-bezier", "overlay must smooth short horizontal moves between nearby lines without feeling laggy");
@@ -63,9 +72,13 @@ assertIncludes(runtimeSource, "document.getElementById(styleId)?.remove()", "run
 assertIncludes(runtimeSource, "window.cancelAnimationFrame", "runtime must cancel pending frames on cleanup");
 assertNotIncludes(runtimeSource, "querySelectorAll(\"main", "runtime must not scan main content nodes");
 assertNotIncludes(runtimeSource, "innerText", "runtime must not read rendered chat text");
+assertNotIncludes(runtimeSource, "block.textContent", "runtime full-row mode must not read whole local block text");
+assertNotIncludes(runtimeSource, "range.selectNodeContents(block)", "runtime full-row mode must not measure whole local blocks");
 
 assertIncludes(settingsSource, 'id: "chat-line-hover"', "settings section must register chat-line-hover");
 assertIncludes(settingsSource, "enableChatLineHover", "settings section must expose the enable switch");
+assertIncludes(settingsSource, "expandChatLineHoverToLine", "settings section must expose the full-row guide switch");
+assertIncludes(settingsSource, 'expandChatLineHoverToLine: "enableChatLineHover"', "full-row guide switch must depend on the main hover switch");
 assertIncludes(settingsSource, 'sourceSystem: "chat-line-hover"', "settings section must expose owner system metadata");
 
 assertIncludes(manifestSource, 'ownerSystem: "chat-line-hover"', "JS manifest must preload chat-line-hover settings");
