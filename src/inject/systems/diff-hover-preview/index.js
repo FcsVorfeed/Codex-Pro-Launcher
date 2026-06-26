@@ -1826,6 +1826,46 @@
       return workspaceFileModulePromise;
     }
 
+    function isWorkspaceFileOpener(candidate) {
+      // 这一段用官方 opener 的参数名特征识别真实打开函数，兼容 Codex 更新后导出名漂移。
+      // Identify the real opener by its official parameter names so Codex export-name drift stays compatible.
+      if (typeof candidate !== "function") return false;
+
+      // 这一段只做源码特征检查，不执行候选函数，避免误触发页面状态变化。
+      // Check source features only and never execute candidates while detecting the opener.
+      let source = "";
+      try {
+        source = Function.prototype.toString.call(candidate);
+      } catch {
+        return false;
+      }
+      return source.includes("openInSidePanel") &&
+        source.includes("openFile") &&
+        source.includes("path") &&
+        source.includes("scope");
+    }
+
+    function getWorkspaceFileOpener(module) {
+      // 这一段优先尝试已知导出名：旧版 Codex 是 t，2026-06-26 更新后是 n。
+      // Prefer known export names: older Codex used t, while the 2026-06-26 update uses n.
+      for (const candidate of [module?.t, module?.n]) {
+        if (isWorkspaceFileOpener(candidate)) return candidate;
+      }
+
+      // 这一段有界扫描模块导出，避免之后官方再改短导出名时直接失效。
+      // Bounded-scan module exports so future short export-name changes do not immediately break opening.
+      for (const key of Object.keys(module || {})) {
+        let candidate = null;
+        try {
+          candidate = module[key];
+        } catch {
+          continue;
+        }
+        if (isWorkspaceFileOpener(candidate)) return candidate;
+      }
+      return null;
+    }
+
     async function getReviewNavigationModulePath() {
       // 这一段缓存官方 review-navigation-model chunk 路径，避免右上角点击重复扫描主脚本。
       // Cache the official review-navigation-model chunk path so right-top clicks do not rescan the main script.
@@ -1925,10 +1965,11 @@
       const scope = findWorkspaceRouteScope(anchor, summary);
       if (!scope) return false;
       const module = await getWorkspaceFileModule();
-      if (typeof module?.t !== "function") return false;
+      const openWorkspaceFile = getWorkspaceFileOpener(module);
+      if (!openWorkspaceFile) return false;
       let usedExternalFallback = false;
       const normalizedRange = navigationApi.firstNavigationRange({ navigationRanges: targetRange ? [targetRange] : [] });
-      module.t({
+      openWorkspaceFile({
         scope,
         path: file.path,
         cwd: summary.cwd || null,

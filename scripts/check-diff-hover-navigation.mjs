@@ -204,6 +204,14 @@ assert(
   "diff hover right-side opening should not fall back to the file-tree onOpenFile handler",
 );
 assert(
+  /function isWorkspaceFileOpener\(candidate\)/u.test(indexSource) &&
+    /function getWorkspaceFileOpener\(module\)/u.test(indexSource) &&
+    /\[module\?\.t, module\?\.n\]/u.test(indexSource) &&
+    /source\.includes\("openInSidePanel"\)/u.test(indexSource) &&
+    /Object\.keys\(module \|\| \{\}\)/u.test(indexSource),
+  "diff hover right-side opening should tolerate Codex open-workspace-file export-name drift",
+);
+assert(
   /function isCompactAboveComposerReviewTrigger/u.test(indexSource) &&
     /findAboveComposerPortal\(anchor\)/u.test(indexSource) &&
     /anchor\.contains\(element\)/u.test(indexSource),

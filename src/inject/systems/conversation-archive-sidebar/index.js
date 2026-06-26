@@ -849,6 +849,46 @@
     return workspaceFileModulePromise;
   }
 
+  function isWorkspaceFileOpener(candidate) {
+    // 这一段用官方 opener 的参数名特征识别真实打开函数，兼容 Codex 更新后导出名漂移。
+    // Identify the real opener by its official parameter names so Codex export-name drift stays compatible.
+    if (typeof candidate !== "function") return false;
+
+    // 这一段只做源码特征检查，不执行候选函数，避免误触发页面状态变化。
+    // Check source features only and never execute candidates while detecting the opener.
+    let source = "";
+    try {
+      source = Function.prototype.toString.call(candidate);
+    } catch {
+      return false;
+    }
+    return source.includes("openInSidePanel") &&
+      source.includes("openFile") &&
+      source.includes("path") &&
+      source.includes("scope");
+  }
+
+  function getWorkspaceFileOpener(module) {
+    // 这一段优先尝试已知导出名：旧版 Codex 是 t，2026-06-26 更新后是 n。
+    // Prefer known export names: older Codex used t, while the 2026-06-26 update uses n.
+    for (const candidate of [module?.t, module?.n]) {
+      if (isWorkspaceFileOpener(candidate)) return candidate;
+    }
+
+    // 这一段有界扫描模块导出，避免之后官方再改短导出名时直接失效。
+    // Bounded-scan module exports so future short export-name changes do not immediately break opening.
+    for (const key of Object.keys(module || {})) {
+      let candidate = null;
+      try {
+        candidate = module[key];
+      } catch {
+        continue;
+      }
+      if (isWorkspaceFileOpener(candidate)) return candidate;
+    }
+    return null;
+  }
+
   function findWorkspaceRouteScope() {
     // 这一段复用现有 route-scope 工具，优先从文件树找，首页态再从 React 页面宿主找。
     // Reuse the existing route-scope utility, preferring file-tree hosts and falling back to page React hosts.
@@ -1132,9 +1172,10 @@
 
     try {
       const module = await getWorkspaceFileModule();
-      if (typeof module?.t === "function") {
+      const openWorkspaceFile = getWorkspaceFileOpener(module);
+      if (openWorkspaceFile) {
         let usedOpenFileFallback = false;
-        module.t({
+        openWorkspaceFile({
           scope,
           ...(cwd ? { cwd } : {}),
           hostId: "local",

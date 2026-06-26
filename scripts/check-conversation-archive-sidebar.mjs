@@ -92,8 +92,16 @@ assert(
   "conversation archive should use a route scope when calling the official side-panel opener",
 );
 assert(
-  /module\.t\(\{[\s\S]*scope,[\s\S]*hostId: "local",[\s\S]*isPreview: true,[\s\S]*openInSidePanel: true,[\s\S]*path: workspacePath,[\s\S]*\}\);/u.test(openFunctionSource),
+  /const openWorkspaceFile = getWorkspaceFileOpener\(module\);[\s\S]*openWorkspaceFile\(\{[\s\S]*scope,[\s\S]*hostId: "local",[\s\S]*isPreview: true,[\s\S]*openInSidePanel: true,[\s\S]*path: workspacePath,[\s\S]*\}\);/u.test(openFunctionSource),
   "conversation archive should call the official side-panel opener with scope and openInSidePanel",
+);
+assert(
+  /function isWorkspaceFileOpener\(candidate\)/u.test(source) &&
+    /function getWorkspaceFileOpener\(module\)/u.test(source) &&
+    /\[module\?\.t, module\?\.n\]/u.test(source) &&
+    /source\.includes\("openInSidePanel"\)/u.test(source) &&
+    /Object\.keys\(module \|\| \{\}\)/u.test(source),
+  "conversation archive should tolerate Codex open-workspace-file export-name drift",
 );
 assert(
   /isPreview: true/u.test(openFunctionSource) &&
