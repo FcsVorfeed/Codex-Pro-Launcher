@@ -66,6 +66,10 @@ pub const SETTINGS_MENU_SECTION_MODULES: &[SettingsSectionModule] = &[
         path: "src/inject/systems/chat-width-resizer/settings.js",
     },
     SettingsSectionModule {
+        owner_system: "chat-line-hover",
+        path: "src/inject/systems/chat-line-hover/settings.js",
+    },
+    SettingsSectionModule {
         owner_system: "file-tree-filter",
         path: "src/inject/systems/file-tree-filter/settings.js",
     },
@@ -149,6 +153,10 @@ pub const INJECTABLE_SYSTEMS: &[InjectableSystem] = &[
     InjectableSystem {
         name: "chat-width-resizer",
         modules: &["src/inject/systems/chat-width-resizer/index.js"],
+    },
+    InjectableSystem {
+        name: "chat-line-hover",
+        modules: &["src/inject/systems/chat-line-hover/index.js"],
     },
     InjectableSystem {
         name: "diff-hover-preview",

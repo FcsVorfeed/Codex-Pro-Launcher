@@ -52,6 +52,10 @@ export const settingsMenuSectionModules = [
     path: ["src", "inject", "systems", "chat-width-resizer", "settings.js"],
   },
   {
+    ownerSystem: "chat-line-hover",
+    path: ["src", "inject", "systems", "chat-line-hover", "settings.js"],
+  },
+  {
     ownerSystem: "file-tree-filter",
     path: ["src", "inject", "systems", "file-tree-filter", "settings.js"],
   },
@@ -146,6 +150,12 @@ export const injectableSystems = [
     name: "chat-width-resizer",
     modules: [
       ["src", "inject", "systems", "chat-width-resizer", "index.js"],
+    ],
+  },
+  {
+    name: "chat-line-hover",
+    modules: [
+      ["src", "inject", "systems", "chat-line-hover", "index.js"],
     ],
   },
   {

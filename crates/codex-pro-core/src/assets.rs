@@ -51,6 +51,9 @@ pub fn module_source(path: &str) -> Option<&'static str> {
         "src/inject/systems/chat-width-resizer/settings.js" => {
             include_str!("../../../src/inject/systems/chat-width-resizer/settings.js")
         }
+        "src/inject/systems/chat-line-hover/settings.js" => {
+            include_str!("../../../src/inject/systems/chat-line-hover/settings.js")
+        }
         "src/inject/systems/file-tree-filter/settings.js" => {
             include_str!("../../../src/inject/systems/file-tree-filter/settings.js")
         }
@@ -122,6 +125,9 @@ pub fn module_source(path: &str) -> Option<&'static str> {
         }
         "src/inject/systems/chat-width-resizer/index.js" => {
             include_str!("../../../src/inject/systems/chat-width-resizer/index.js")
+        }
+        "src/inject/systems/chat-line-hover/index.js" => {
+            include_str!("../../../src/inject/systems/chat-line-hover/index.js")
         }
         "src/inject/systems/diff-hover-preview/navigation-utils.js" => {
             include_str!("../../../src/inject/systems/diff-hover-preview/navigation-utils.js")

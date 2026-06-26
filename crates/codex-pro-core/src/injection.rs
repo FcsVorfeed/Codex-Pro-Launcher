@@ -436,6 +436,8 @@ async fn cleanup_auxiliary_codex_targets(
     "codex-pro-background-wallpaper-style",
     "codex-pro-chat-width-resizer-handle",
     "codex-pro-chat-width-resizer-style",
+    "codex-pro-chat-line-hover",
+    "codex-pro-chat-line-hover-style",
     "codex-pro-font-override-style",
     "codex-pro-mouse-gesture-root",
     "codex-pro-mouse-gesture-style",

@@ -86,6 +86,7 @@
     diffHoverFileOpenMode: "review",
     diffHoverPreviewFontSize: "",
     enableBackgroundWallpaper: false,
+    enableChatLineHover: true,
     enableChatWidthResizer: true,
     enableCloudSettingsSync: false,
     enableConversationArchiveSync: false,
@@ -854,6 +855,10 @@
     {
       key: "enableBackgroundWallpaper",
       normalize: (value) => normalizeEnabledSetting(value, defaultSettings.enableBackgroundWallpaper),
+    },
+    {
+      key: "enableChatLineHover",
+      normalize: (value) => normalizeEnabledSetting(value, defaultSettings.enableChatLineHover),
     },
     { key: "enableChatWidthResizer", normalize: normalizeChatWidthResizerEnabled },
     { key: "enableCloudSettingsSync", normalize: normalizeCloudSettingsSyncEnabled, preserveOnPartialSave: true },

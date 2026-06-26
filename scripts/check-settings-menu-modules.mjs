@@ -200,6 +200,12 @@ const expectedSections = [
     modifiedSettingKeys: ["enableChatWidthResizer"],
   },
   {
+    id: "chat-line-hover",
+    modulePath: ["src", "inject", "systems", "chat-line-hover", "settings.js"],
+    ownerSystem: "chat-line-hover",
+    settingKeys: ["enableChatLineHover"],
+  },
+  {
     id: "file-tree",
     modulePath: ["src", "inject", "systems", "file-tree-filter", "settings.js"],
     ownerSystem: "file-tree-filter",
