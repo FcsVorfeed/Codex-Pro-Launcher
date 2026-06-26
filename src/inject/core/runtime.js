@@ -2,7 +2,7 @@
   // 这一段建立注入运行时命名空间，并在重复注入时重置本次模块注册表。
   // Create the injection runtime namespace and reset this injection's module registry on reinjection.
   const runtime = window.__codexProRuntime ?? {};
-  runtime.version = "1.0.3";
+  runtime.version = "1.0.4";
   runtime.systems = [];
   runtime.systemModules = {};
   runtime.controllers = runtime.controllers ?? {};

@@ -93,6 +93,44 @@ $releaseNotesPath = Join-Path $outputDir "release-notes-v$releaseVersion.md"
 $targetDir = Join-Path $repoRoot "private\target"
 $releaseConfigEnvName = "CODEX_PRO_RELEASE_CONFIG_JSON"
 
+# 这一段构造 Rust 路径重映射参数，避免 release 二进制带出本机路径。
+# Build a Rust path remap flag so release binaries do not expose local filesystem paths.
+function Get-RustPathRemapFlag {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$From,
+
+    [Parameter(Mandatory = $true)]
+    [string]$To
+  )
+
+  # 这一段规范化前缀，确保不同命令看到的路径文本尽量一致。
+  # Normalize prefixes so different commands see the most consistent path text.
+  $normalizedFrom = $From.Trim().TrimEnd("\", "/")
+  if ([string]::IsNullOrWhiteSpace($normalizedFrom)) {
+    return $null
+  }
+
+  return "--remap-path-prefix=$normalizedFrom=$To"
+}
+
+# 这一段为 release 构建统一设置 Rust 路径重映射。
+# Set Rust path remapping for every release build cargo invocation.
+function Set-ReleaseRustPathRemapFlags {
+  $remapFlags = @()
+  $remapFlags += Get-RustPathRemapFlag -From $repoRoot -To "."
+  if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
+    $remapFlags += Get-RustPathRemapFlag -From $env:USERPROFILE -To "<local-user-home>"
+  }
+
+  # 这一段保留调用方已有 RUSTFLAGS，只追加发布隐私保护所需参数。
+  # Preserve caller-provided RUSTFLAGS while appending release privacy flags.
+  $existingRustFlags = [string]$env:RUSTFLAGS
+  $joinedRemapFlags = ($remapFlags | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join " "
+  $env:RUSTFLAGS = "$existingRustFlags $joinedRemapFlags".Trim()
+  Write-Host "Release Rust path remap: repository and user profile paths are sanitized."
+}
+
 # 这一段读取 release 需要内嵌的公开运行配置。
 # Read the public runtime config that must be embedded into the release executable.
 function Get-RequiredString {
@@ -311,6 +349,7 @@ function Get-ReleaseRuntimeConfigJson {
 # Set compile-time release config before all cargo calls so tests, clippy, and the final exe use the same public runtime config.
 $releaseConfigJson = Get-ReleaseRuntimeConfigJson
 Set-Item -Path "Env:$releaseConfigEnvName" -Value $releaseConfigJson
+Set-ReleaseRustPathRemapFlags
 Write-Host "Release runtime config: embedded public sync/license endpoints from private config."
 
 if (-not $SkipTests) {
