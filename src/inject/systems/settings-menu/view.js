@@ -144,6 +144,12 @@
     return element.getBoundingClientRect();
   }
 
+  function getComputedAppRegion(style) {
+    // 这一段同时兼容 Chromium 暴露的 CSS 属性值和旧的 JS 属性，避免新版标题栏识别失败。
+    // Read both the Chromium CSS property value and the older JS property so new title bars still match.
+    return (style.getPropertyValue("-webkit-app-region") || style.webkitAppRegion || "").trim();
+  }
+
   function isTopBarCandidate(element) {
     // 这一段用结构和几何特征识别官方顶部栏，不依赖“文件/编辑”等多语言文案。
     // Identify the native top bar by structure and geometry without relying on localized menu text.
@@ -157,7 +163,7 @@
     return (
       style.display.includes("flex") &&
       style.alignItems === "center" &&
-      style.webkitAppRegion === "drag"
+      getComputedAppRegion(style) === "drag"
     );
   }
 
@@ -326,7 +332,7 @@
       `
         #${rootId} {
           position: fixed;
-          top: 6px;
+          top: 4px;
           right: 146px;
           width: 28px;
           height: 28px;

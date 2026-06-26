@@ -983,6 +983,16 @@ assert(
   "settings-menu view must show a custom update tooltip on trigger hover",
 );
 assert(
+  viewSource.includes('getPropertyValue("-webkit-app-region")') &&
+    viewSource.includes("style.webkitAppRegion") &&
+    viewSource.includes("getComputedAppRegion(style)"),
+  "settings-menu top-bar detection must read Chromium's CSS app-region value before falling back",
+);
+assert(
+  viewSource.includes(`#\${rootId} {\n          position: fixed;\n          top: 4px;`),
+  "settings-menu fixed fallback trigger must stay vertically centered in the 36px Codex toolbar",
+);
+assert(
   viewSource.includes('data-codex-pro-disabled="true"') &&
     viewSource.includes(".codex-pro-settings-switch input:disabled + .codex-pro-settings-switch-track"),
   "settings-menu view must visibly dim row copy and disabled switch tracks",
