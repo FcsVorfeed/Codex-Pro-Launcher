@@ -79,11 +79,15 @@ Codex-Pro-Launcher places remaining usage, today's tokens, current conversation 
 <img width="968" height="552" alt="QQ截图20260622192235 rounded" src="https://github.com/user-attachments/assets/7337211e-7217-40a0-a760-5bdeb28210d1" />
 <img width="1025" height="439" alt="QQ截图20260622081950 rounded" src="https://github.com/user-attachments/assets/c0a749ba-6611-440e-a4c1-f17e2c267741" />
 
+https://github.com/user-attachments/assets/d092fb5f-f7c8-4b63-9e3b-228b632f34b6
+
 Hover over Codex's native change summaries to see the changed file list. You can open a single-file preview, jump to a specific hunk, or send the file pair to a local external diff tool.
 
 ### 🌳 Less Noisy File Tree
 
 <img width="248" height="558" alt="QQ截图20260622082742 rounded" src="https://github.com/user-attachments/assets/886449fb-4913-4c88-9a30-4f019f414ade" />
+
+https://github.com/user-attachments/assets/ab7871c8-d550-4b09-b2e2-ba4be628ac65
 
 Hide build output, cache folders, and other noisy entries by rule. When the right-side preview changes, the file tree can also reveal the folder that contains the active file.
 
