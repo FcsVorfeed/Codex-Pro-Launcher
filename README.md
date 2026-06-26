@@ -71,6 +71,7 @@ https://github.com/user-attachments/assets/206dc63c-c403-49fb-a37c-5186894a3a3c
 
 <img width="300" height="350" alt="QQ截图20260622072459 panel" src="https://github.com/user-attachments/assets/34130685-c092-441b-aa65-483baa674402" />
 <img width="736" height="100" alt="QQ截图20260622072624 panel" src="https://github.com/user-attachments/assets/f2d02c5d-b11f-4d7c-bed4-2f59f6c236ff" />
+<img width="738" height="100" alt="PixPin_2026-06-27_03-42-21 panel" src="https://github.com/user-attachments/assets/9e16dce8-7382-4f84-aefc-cfb362afc1f6" />
 
 Codex-Pro-Launcher places remaining usage, today's tokens, current conversation tokens, network latency, and context usage where they are easier to scan. It does not store raw conversation content just to show usage statistics.
 
