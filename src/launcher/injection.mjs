@@ -96,6 +96,10 @@ async function cleanupAuxiliaryCodexTargets(debugPort, selectedTargetId) {
             ];
             for (const id of ids) document.getElementById(id)?.remove();
             for (const node of document.querySelectorAll("[data-codex-pro-context-usage-inline]")) node.remove();
+            for (const node of document.querySelectorAll("[data-codex-pro-context-usage-ring-tone]")) {
+              node.removeAttribute("data-codex-pro-context-usage-ring-tone");
+              node.style?.removeProperty?.("--codex-pro-context-usage-ring-color");
+            }
             window.__codexProRuntime = undefined;
           })();
         `,

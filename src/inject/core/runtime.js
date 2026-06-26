@@ -51,6 +51,7 @@
     // 这一段通过系统自己的生命周期控制器停止功能，并记录当前启停状态。
     // Stop a feature through its own lifecycle controller and record its current enabled state.
     runtime.controllers[system.name]?.abort?.();
+    system.sync = null;
     runtime.systemStates[system.name] = { enabled: false, started: false };
   }
 
@@ -58,9 +59,11 @@
     // 这一段启动单个系统，异常只影响当前系统，不影响其它功能继续运行。
     // Start one system while keeping failures isolated from the rest of Codex-Pro.
     try {
-      system.start(runtime);
+      const instance = system.start(runtime);
+      system.sync = typeof instance?.sync === "function" ? instance.sync : null;
       runtime.systemStates[system.name] = { enabled: true, started: true };
     } catch (error) {
+      system.sync = null;
       runtime.systemStates[system.name] = { enabled: true, started: false };
       console.warn(`[Codex-Pro] system failed: ${system.name}`, error);
     }
@@ -78,6 +81,13 @@
     if (!state.started) {
       startSystem(system);
       return;
+    }
+    if (typeof system.sync === "function") {
+      try {
+        system.sync(getSystemSettings());
+      } catch (error) {
+        console.warn(`[Codex-Pro] system sync failed: ${system.name}`, error);
+      }
     }
     runtime.systemStates[system.name] = { enabled: true, started: true };
   }

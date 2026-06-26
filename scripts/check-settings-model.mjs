@@ -82,6 +82,20 @@ assert(
   "conversation token details should default to hidden",
 );
 assert(
+  settings.defaultSettings.enableContextUsageRingColors === false,
+  "context usage ring colors should default to disabled",
+);
+assert(
+  settings.defaultSettings.contextUsageRingWarningThreshold === 60 &&
+    settings.defaultSettings.contextUsageRingCriticalThreshold === 80,
+  "context usage ring thresholds should default to 60/80",
+);
+assert(
+  settings.defaultSettings.contextUsageRingWarningColor === "#f59e0b" &&
+    settings.defaultSettings.contextUsageRingCriticalColor === "#ef4444",
+  "context usage ring colors should default to yellow/red",
+);
+assert(
   settings.defaultSettings.usagePanelTodayTokenSource === "hidden",
   "Today token source should default to hidden",
 );
@@ -181,6 +195,11 @@ const savedSettings = settings.saveSettings({
   enableSplitItemsHotpathPatch: false,
   enableStartupSidebar: true,
   enableUsagePanel: false,
+  enableContextUsageRingColors: true,
+  contextUsageRingWarningThreshold: 90,
+  contextUsageRingCriticalThreshold: 75,
+  contextUsageRingWarningColor: "FACC15",
+  contextUsageRingCriticalColor: "#DC2626",
   hiddenFileTreePatterns: "dist/**",
   enablePetEventSounds: true,
   petEventSoundCooldownMs: 600,
@@ -221,6 +240,11 @@ assert(savedSettings.enableCodexSqliteLogInsertBlocker === true, "saveSettings s
 assert(savedSettings.enableSplitItemsHotpathPatch === false, "saveSettings should allow split-items hotpath patch to turn off");
 assert(savedSettings.collapseSidebarOnStartup === true, "saveSettings should allow changed startup collapse switch to turn on");
 assert(savedSettings.enableStartupSidebar === true, "saveSettings should allow changed startup sidebar switch to turn on");
+assert(savedSettings.enableContextUsageRingColors === true, "saveSettings should allow context ring colors to turn on");
+assert(savedSettings.contextUsageRingWarningThreshold === 75, "saveSettings should clamp warning threshold to critical threshold");
+assert(savedSettings.contextUsageRingCriticalThreshold === 75, "saveSettings should normalize critical threshold");
+assert(savedSettings.contextUsageRingWarningColor === "#facc15", "saveSettings should normalize warning ring color");
+assert(savedSettings.contextUsageRingCriticalColor === "#dc2626", "saveSettings should normalize critical ring color");
 assert(savedSettings.conversationArchiveSidebarDirectoryPanelMode === "hover", "saveSettings should normalize changed left directory panel mode");
 assert(savedSettings.showUsageInLowerLeftPanel === true, "saveSettings should allow changed lower-left usage switch to turn on");
 assert(savedSettings.showUsagePanelPing === false, "saveSettings should allow changed Ping switch to turn off");
@@ -256,6 +280,11 @@ assert(rawSettings.enableCodexSqliteLogInsertBlocker === true, "changed Codex SQ
 assert(rawSettings.enableSplitItemsHotpathPatch === false, "changed split-items hotpath patch switch should be stored as override");
 assert(rawSettings.collapseSidebarOnStartup === true, "changed startup collapse switch should be stored as override");
 assert(rawSettings.enableStartupSidebar === true, "changed startup sidebar switch should be stored as override");
+assert(rawSettings.enableContextUsageRingColors === true, "changed context ring colors switch should be stored as override");
+assert(rawSettings.contextUsageRingWarningThreshold === 75, "changed warning threshold should be stored normalized");
+assert(rawSettings.contextUsageRingCriticalThreshold === 75, "changed critical threshold should be stored normalized");
+assert(rawSettings.contextUsageRingWarningColor === "#facc15", "changed warning ring color should be stored normalized");
+assert(rawSettings.contextUsageRingCriticalColor === "#dc2626", "changed critical ring color should be stored normalized");
 assert(rawSettings.showUsageInLowerLeftPanel === true, "changed lower-left usage switch should be stored as override");
 assert(rawSettings.showUsagePanelPing === false, "changed Ping switch should be stored as override");
 assert(rawSettings.usagePanelPingEndpoint === "https://example.com/ping", "changed Ping endpoint should be stored as override");
@@ -312,6 +341,11 @@ assert(rawSettings.enableChatWidthResizer === false, "partial metadata save shou
 assert(rawSettings.enableCodexSqliteLogInsertBlocker === true, "partial metadata save should preserve Codex SQLite log blocker switch");
 assert(rawSettings.enableSplitItemsHotpathPatch === false, "partial metadata save should preserve split-items hotpath patch switch");
 assert(rawSettings.enableStartupSidebar === true, "partial metadata save should preserve startup sidebar switch");
+assert(rawSettings.enableContextUsageRingColors === true, "partial metadata save should preserve context ring colors switch");
+assert(rawSettings.contextUsageRingWarningThreshold === 75, "partial metadata save should preserve warning threshold");
+assert(rawSettings.contextUsageRingCriticalThreshold === 75, "partial metadata save should preserve critical threshold");
+assert(rawSettings.contextUsageRingWarningColor === "#facc15", "partial metadata save should preserve warning ring color");
+assert(rawSettings.contextUsageRingCriticalColor === "#dc2626", "partial metadata save should preserve critical ring color");
 assert(rawSettings.enableUsagePanel === false, "partial metadata save should preserve ordinary boolean overrides");
 assert(rawSettings.hiddenFileTreePatterns === "dist/**", "partial metadata save should preserve ordinary textarea overrides");
 assert(rawSettings.enablePetEventSounds === true, "partial metadata save should preserve pet event sounds switch");

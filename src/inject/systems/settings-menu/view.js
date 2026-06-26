@@ -640,6 +640,24 @@
           gap: 8px;
           align-items: center;
         }
+        #${rootId} .codex-pro-settings-color-row {
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+        }
+        #${rootId} .codex-pro-settings-color-input {
+          width: 42px;
+          height: 30px;
+          border: 1px solid var(--color-token-border, rgba(255, 255, 255, .12));
+          border-radius: 6px;
+          background: transparent;
+          padding: 2px;
+          cursor: pointer;
+        }
+        #${rootId} .codex-pro-settings-color-input:disabled {
+          cursor: not-allowed;
+          opacity: .48;
+        }
         #${rootId} .codex-pro-settings-shortcut-row {
           display: grid;
           grid-template-columns: minmax(132px, 160px) 30px;

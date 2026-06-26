@@ -76,7 +76,11 @@
     conversationArchiveRevision: 0,
     conversationArchiveSidebarDirectoryPanelMode: "click",
     conversationArchiveSidebarPanelMode: "hover",
+    contextUsageRingCriticalColor: "#ef4444",
+    contextUsageRingCriticalThreshold: 80,
     contextUsageDecimalPlaces: 0,
+    contextUsageRingWarningColor: "#f59e0b",
+    contextUsageRingWarningThreshold: 60,
     chatWidthMode: defaultChatWidthMode,
     chatWidthPixels: defaultChatWidthPixels,
     diffHoverFileOpenMode: "review",
@@ -87,6 +91,7 @@
     enableConversationArchiveSync: false,
     enableConversationArchiveSidebar: true,
     enableContextUsageInline: true,
+    enableContextUsageRingColors: false,
     enableCodexSqliteLogInsertBlocker: false,
     enableDiffHoverPreview: true,
     enableEditedFileCardExternalDiffMiddleClick: true,
@@ -141,6 +146,7 @@
   const maxChatWidthPixels = 2200;
   const maxConversationArchiveDisplayNameLength = 120;
   const maxContextUsageDecimalPlaces = 3;
+  const maxContextUsageRingThreshold = 100;
   const maxDiffHoverPreviewFontSize = 32;
   const maxBackgroundWallpaperOpacity = 0.5;
   const maxExternalDiffToolPathLength = 1000;
@@ -154,6 +160,7 @@
   const minBackgroundWallpaperOpacity = 0;
   const minChatWidthPixels = 560;
   const minContextUsageDecimalPlaces = 0;
+  const minContextUsageRingThreshold = 0;
   const minDiffHoverPreviewFontSize = 8;
   const minPetEventSoundCooldownMs = 0;
   const minPetEventSoundVolume = 0;
@@ -519,6 +526,42 @@
     );
   }
 
+  function normalizeContextUsageRingThreshold(value, defaultValue) {
+    // 这一段把圆圈变色阈值限制在 0-100 的整数百分比，避免异常值打乱状态判断。
+    // Clamp ring color thresholds to integer percentages from 0-100 so invalid values cannot break tone decisions.
+    const threshold = Number(value);
+    if (!Number.isFinite(threshold)) return defaultValue;
+    return Math.min(
+      Math.max(Math.round(threshold), minContextUsageRingThreshold),
+      maxContextUsageRingThreshold,
+    );
+  }
+
+  function normalizeContextUsageRingWarningThreshold(value, source, fallbackSource) {
+    // 这一段让警告阈值不高于危险阈值，保存后仍保持单调递进的用量状态。
+    // Keep the warning threshold no higher than the critical threshold so saved usage states remain monotonic.
+    const warningThreshold = normalizeContextUsageRingThreshold(value, defaultSettings.contextUsageRingWarningThreshold);
+    const criticalThreshold = normalizeContextUsageRingThreshold(
+      getSettingSourceValue({ key: "contextUsageRingCriticalThreshold" }, source, fallbackSource),
+      defaultSettings.contextUsageRingCriticalThreshold,
+    );
+    return Math.min(warningThreshold, criticalThreshold);
+  }
+
+  function normalizeContextUsageRingCriticalThreshold(value) {
+    // 这一段单独规范危险阈值，警告阈值会在自己的归一化里向它收敛。
+    // Normalize the critical threshold on its own; the warning threshold converges to it in its own normalizer.
+    return normalizeContextUsageRingThreshold(value, defaultSettings.contextUsageRingCriticalThreshold);
+  }
+
+  function normalizeContextUsageRingColor(value, defaultValue) {
+    // 这一段只接受十六进制颜色，避免把任意 CSS 内容写入运行时样式或同步快照。
+    // Accept only hex colors so arbitrary CSS content cannot enter runtime styles or sync snapshots.
+    const rawValue = typeof value === "string" ? value.trim() : "";
+    const match = /^#?([0-9a-f]{6})$/iu.exec(rawValue);
+    return match ? `#${match[1].toLowerCase()}` : defaultValue;
+  }
+
   function readChatWidthPixelNumber(value) {
     // 这一段只接受明确的数字或非空数字字符串，避免 null/空串在 Number() 下被误当成 0。
     // Accept only explicit numbers or non-empty numeric strings so null/empty strings are not coerced to 0.
@@ -794,6 +837,16 @@
     { key: "conversationArchiveSidebarDirectoryPanelMode", normalize: normalizeConversationArchiveSidebarDirectoryPanelMode },
     { key: "conversationArchiveSidebarPanelMode", normalize: normalizeConversationArchiveSidebarPanelMode },
     { key: "contextUsageDecimalPlaces", normalize: normalizeContextUsageDecimalPlaces },
+    {
+      key: "contextUsageRingCriticalColor",
+      normalize: (value) => normalizeContextUsageRingColor(value, defaultSettings.contextUsageRingCriticalColor),
+    },
+    { key: "contextUsageRingCriticalThreshold", normalize: normalizeContextUsageRingCriticalThreshold },
+    {
+      key: "contextUsageRingWarningColor",
+      normalize: (value) => normalizeContextUsageRingColor(value, defaultSettings.contextUsageRingWarningColor),
+    },
+    { key: "contextUsageRingWarningThreshold", normalize: normalizeContextUsageRingWarningThreshold },
     { key: "chatWidthMode", normalize: normalizeChatWidthMode },
     { key: "chatWidthPixels", normalize: normalizeChatWidthPixels },
     { key: "diffHoverFileOpenMode", normalize: normalizeDiffHoverFileOpenMode },
@@ -812,6 +865,10 @@
     {
       key: "enableContextUsageInline",
       normalize: (value) => normalizeEnabledSetting(value, defaultSettings.enableContextUsageInline),
+    },
+    {
+      key: "enableContextUsageRingColors",
+      normalize: (value) => normalizeEnabledSetting(value, defaultSettings.enableContextUsageRingColors),
     },
     {
       key: "enableCodexSqliteLogInsertBlocker",
@@ -1107,10 +1164,12 @@
     maxPetEventSoundVolume,
     maxUsagePanelPingEndpointLength,
     maxContextUsageDecimalPlaces,
+    maxContextUsageRingThreshold,
     minBackgroundWallpaperIntervalSeconds,
     minBackgroundWallpaperOpacity,
     minChatWidthPixels,
     minContextUsageDecimalPlaces,
+    minContextUsageRingThreshold,
     minDiffHoverPreviewFontSize,
     minPetEventSoundCooldownMs,
     minPetEventSoundVolume,

@@ -99,6 +99,22 @@
     `;
   }
 
+  function renderColorField({ key, label, labelKey, help, helpKey, copyParams, name = key }) {
+    // 这一段生成通用颜色字段，让功能系统可以声明安全的 #RRGGBB 颜色配置。
+    // Render a common color field so feature systems can declare safe #RRGGBB color settings.
+    return `
+      <label class="codex-pro-settings-field" data-codex-pro-setting-key="${key}">
+        <span class="codex-pro-settings-copy">
+          <span class="codex-pro-settings-label">${resolveCopy({ value: label, key: labelKey, params: copyParams })}</span>
+          <span class="codex-pro-settings-help">${resolveCopy({ value: help, key: helpKey, params: copyParams })}</span>
+        </span>
+        <span class="codex-pro-settings-color-row">
+          <input class="codex-pro-settings-color-input" name="${name}" type="color">
+        </span>
+      </label>
+    `;
+  }
+
   function renderTextareaField({ key, label, labelKey, help, helpKey, copyParams, maxlength, name = key }) {
     // 这一段生成通用多行文本字段，适合 Glob 规则等纯本机配置。
     // Render a common textarea field for local-only config such as Glob rules.
@@ -115,6 +131,7 @@
 
   settingsMenu.registerSection = registerSection;
   settingsMenu.sectionControls = {
+    renderColorField,
     renderNumberField,
     renderSwitchField,
     renderTextareaField,

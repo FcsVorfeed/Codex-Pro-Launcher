@@ -5,12 +5,18 @@
   const systemName = "context-usage-inline";
   const styleId = "codex-pro-context-usage-inline-style";
   const badgeSelector = "[data-codex-pro-context-usage-inline]";
+  const ringToneSelector = "[data-codex-pro-context-usage-ring-tone]";
   const defaultDecimalPlaces = 1;
+  const defaultRingCriticalColor = "#ef4444";
+  const defaultRingCriticalThreshold = 80;
+  const defaultRingWarningColor = "#f59e0b";
+  const defaultRingWarningThreshold = 60;
   const maxDecimalPlaces = 3;
   const minDecimalPlaces = 0;
   const percentOnlyRetryDelayMs = 500;
   const percentOnlyRetryLimit = 20;
   const contextUsageCandidateSelector = '[role="img"], svg';
+  let lastTonedRingIcon = null;
 
   function installStyles() {
     // 这一段安装输入框内联上下文用量样式，跟随 Codex 原生页脚文字风格。
@@ -44,6 +50,17 @@
           min-width: 0;
           overflow: hidden;
           text-overflow: ellipsis;
+        }
+        ${ringToneSelector},
+        ${ringToneSelector} svg,
+        svg${ringToneSelector} {
+          color: var(--codex-pro-context-usage-ring-color, currentColor) !important;
+        }
+        ${ringToneSelector} circle,
+        ${ringToneSelector} path,
+        svg${ringToneSelector} circle,
+        svg${ringToneSelector} path {
+          stroke: var(--codex-pro-context-usage-ring-color, currentColor) !important;
         }
       `,
     );
@@ -233,6 +250,101 @@
     return `${Math.round(percent)}%`;
   }
 
+  function getUsagePercent(usage) {
+    // 这一段把 contextUsage 收敛成 0-100 的百分比，忽略新对话切换时的占位状态。
+    // Collapse contextUsage into a 0-100 percent while ignoring placeholder states during chat switches.
+    if (isPlaceholderUsage(usage)) return null;
+    const percent = Number.isFinite(usage?.percent)
+      ? usage.percent
+      : usage?.contextWindow > 0 && Number.isFinite(usage?.usedTokens)
+        ? (usage.usedTokens / usage.contextWindow) * 100
+        : NaN;
+    if (!Number.isFinite(percent)) return null;
+    return Math.min(Math.max(percent, 0), 100);
+  }
+
+  function normalizeRingThreshold(value, fallbackValue) {
+    // 这一段在运行态再次钳制阈值，防止设置模块缺失或旧缓存带来异常值。
+    // Clamp thresholds again at runtime so missing settings modules or stale caches cannot produce invalid values.
+    const threshold = Number(value);
+    if (!Number.isFinite(threshold)) return fallbackValue;
+    return Math.min(Math.max(Math.round(threshold), 0), 100);
+  }
+
+  function normalizeRingColor(value, fallbackValue) {
+    // 这一段在写入 CSS 变量前再次校验颜色，只允许安全的 6 位十六进制值。
+    // Validate colors again before writing CSS variables, allowing only safe six-digit hex values.
+    const rawValue = typeof value === "string" ? value.trim() : "";
+    const match = /^#?([0-9a-f]{6})$/iu.exec(rawValue);
+    return match ? `#${match[1].toLowerCase()}` : fallbackValue;
+  }
+
+  function getRingToneConfig(settings) {
+    // 这一段读取用户可配置的阈值和颜色，并保证警告阈值不超过危险阈值。
+    // Read user-configurable thresholds and colors, keeping warning no higher than critical.
+    const criticalThreshold = normalizeRingThreshold(
+      settings?.contextUsageRingCriticalThreshold,
+      defaultRingCriticalThreshold,
+    );
+    return {
+      criticalColor: normalizeRingColor(settings?.contextUsageRingCriticalColor, defaultRingCriticalColor),
+      criticalThreshold,
+      warningColor: normalizeRingColor(settings?.contextUsageRingWarningColor, defaultRingWarningColor),
+      warningThreshold: Math.min(
+        normalizeRingThreshold(settings?.contextUsageRingWarningThreshold, defaultRingWarningThreshold),
+        criticalThreshold,
+      ),
+    };
+  }
+
+  function clearElementRingTone(element) {
+    // 这一段只清理本系统写入的属性和 CSS 变量，不回滚或猜测 Codex 原生样式。
+    // Clear only attributes and CSS variables written by this system, without guessing Codex's native styles.
+    if (!(element instanceof HTMLElement || element instanceof SVGElement)) return;
+    element.removeAttribute("data-codex-pro-context-usage-ring-tone");
+    element.style.removeProperty("--codex-pro-context-usage-ring-color");
+  }
+
+  function clearRingTone() {
+    // 这一段清理所有带有本系统标记的圆圈，覆盖重新注入或 React 替换后的残留节点。
+    // Clear every ring carrying this system's marker, covering reinjection or React replacement leftovers.
+    for (const element of document.querySelectorAll(ringToneSelector)) clearElementRingTone(element);
+    if (lastTonedRingIcon) clearElementRingTone(lastTonedRingIcon);
+    lastTonedRingIcon = null;
+  }
+
+  function applyRingTone(icon, usage, settings) {
+    // 这一段按百分比把官方圆圈标记为警告或危险；低于阈值时恢复官方原色。
+    // Mark the native ring as warning or critical by percent; restore the native color below thresholds.
+    if (settings?.enableContextUsageRingColors !== true) {
+      clearRingTone();
+      return;
+    }
+    const percent = getUsagePercent(usage);
+    if (percent == null) {
+      clearRingTone();
+      return;
+    }
+    const config = getRingToneConfig(settings);
+    const tone = percent >= config.criticalThreshold
+      ? "critical"
+      : percent >= config.warningThreshold
+        ? "warning"
+        : "";
+    const color = tone === "critical" ? config.criticalColor : tone === "warning" ? config.warningColor : "";
+    if (!tone || !color) {
+      clearRingTone();
+      return;
+    }
+    for (const element of document.querySelectorAll(ringToneSelector)) {
+      if (element !== icon) clearElementRingTone(element);
+    }
+    if (lastTonedRingIcon && lastTonedRingIcon !== icon) clearElementRingTone(lastTonedRingIcon);
+    lastTonedRingIcon = icon;
+    icon.setAttribute("data-codex-pro-context-usage-ring-tone", tone);
+    icon.style.setProperty("--codex-pro-context-usage-ring-color", color);
+  }
+
   function buildDisplayParts(usage, decimalPlaces) {
     // 这一段在新对话真实上下文未就绪时不渲染内联文字，等待后续重试刷新。
     // Skip inline text while the new chat's real context is not ready, waiting for the retry refresh.
@@ -301,21 +413,49 @@
   }
 
   function syncInlineBadge(currentSettings, retryPercentOnlyUsage, clearPercentOnlyRetry) {
-    // 这一段优先执行显示开关；关闭时移除文本但保留 Codex 原生圆圈。
-    // Apply the display switch first; when disabled, remove only the text and keep Codex's native ring.
-    if (currentSettings?.showContextUsageInline === false) {
+    // 这一段优先执行显示开关；文字和圆圈警示色都关闭时彻底恢复 Codex 原生状态。
+    // Apply display switches first; when both text and ring colors are off, restore Codex's native state.
+    const shouldShowBadge = currentSettings?.showContextUsageInline !== false;
+    const shouldColorRing = currentSettings?.enableContextUsageRingColors === true;
+    if (!shouldShowBadge && !shouldColorRing) {
       clearPercentOnlyRetry?.();
       removeBadge();
+      clearRingTone();
       return;
     }
 
-    // 这一段定位原生圆圈、读取用量、准备插入目标；任一环节失败就清除旧节点。
-    // Locate the native ring, read usage, and prepare the insertion target; clear stale nodes on failure.
+    // 这一段定位原生圆圈并读取用量，圆圈变色和内联文字复用同一个真实来源。
+    // Locate the native ring and read usage; ring coloring and inline text reuse the same real source.
     const icon = findContextUsageIcon();
-    const target = icon ? findInlineTarget(icon) : null;
     const usage = icon ? readContextUsage(icon) : null;
+    if (!icon) {
+      clearRingTone();
+      removeBadge();
+      clearPercentOnlyRetry?.();
+      return;
+    }
+    if (!usage) {
+      clearRingTone();
+      removeBadge();
+      retryPercentOnlyUsage?.();
+      return;
+    }
+    applyRingTone(icon, usage, currentSettings);
+
+    // 这一段允许用户只保留圆圈警示色，不强制显示额外的 token 文本。
+    // Allow users to keep only ring warning colors without forcing the extra token text.
+    if (!shouldShowBadge) {
+      removeBadge();
+      if (getUsagePercent(usage) == null) retryPercentOnlyUsage?.();
+      else clearPercentOnlyRetry?.();
+      return;
+    }
+
+    // 这一段只为内联文字寻找插入容器；圆圈警示色不依赖该容器存在。
+    // Find the insertion container only for inline text; ring coloring does not depend on that container.
+    const target = findInlineTarget(icon);
     const decimalPlaces = normalizeDecimalPlaces(currentSettings?.contextUsageDecimalPlaces);
-    const parts = usage ? buildDisplayParts(usage, decimalPlaces) : null;
+    const parts = buildDisplayParts(usage, decimalPlaces);
     if (!target) {
       clearPercentOnlyRetry?.();
       removeBadge();
@@ -402,8 +542,6 @@
       subtree: true,
     });
     window.addEventListener("resize", () => scheduleSync("resize"), { signal: controller.signal });
-    const unsubscribeSettings = settings?.subscribe?.(syncSettings, controller.signal);
-
     // 这一段清理观察器、动画帧和内联节点，避免重复注入后残留监听器。
     // Clean up the observer, animation frame, and badge so reinjection leaves no stale listeners.
     controller.signal.addEventListener(
@@ -412,12 +550,13 @@
         observer.disconnect();
         if (frameId) window.cancelAnimationFrame(frameId);
         clearPercentOnlyRetry();
-        unsubscribeSettings?.();
         removeBadge();
+        clearRingTone();
       },
       { once: true },
     );
 
     syncSettings(currentSettings);
+    return { sync: syncSettings };
   }, { enableSetting: "enableContextUsageInline" });
 })();
