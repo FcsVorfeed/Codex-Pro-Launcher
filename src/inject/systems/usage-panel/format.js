@@ -29,30 +29,33 @@
     return `${Math.round(remainingPercent)}%`;
   }
 
+  function formatUsageDate(date, fallbackText) {
+    // 这一段复用 Codex 菜单的表达方式：当天显示时间，跨天显示月日。
+    // Match the Codex menu style: same-day resets show time, later resets show month and day.
+    if (!date || Number.isNaN(date.getTime())) return fallbackText;
+    const now = new Date();
+    const isSameDay =
+      date.getFullYear() === now.getFullYear() &&
+      date.getMonth() === now.getMonth() &&
+      date.getDate() === now.getDate();
+    if (isSameDay) {
+      return new Intl.DateTimeFormat(i18n.resolveLocale(), {
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(date);
+    }
+    return i18n.t("usage.date.monthDay", {
+      day: date.getDate(),
+      month: date.getMonth() + 1,
+    });
+  }
+
   function formatResetTime(windowInfo) {
     // 这一段把秒级 reset_at 转成 Date，接口异常时给出稳定占位。
     // Convert second-based reset_at into a Date and use a stable placeholder for bad data.
     const resetAtSeconds = Number(windowInfo?.reset_at);
     const resetAt = Number.isFinite(resetAtSeconds) ? new Date(resetAtSeconds * 1000) : null;
-    if (!resetAt || Number.isNaN(resetAt.getTime())) return "--:--";
-
-    // 这一段复用 Codex 菜单的表达方式：当天显示时间，跨天显示月日。
-    // Match the Codex menu style: same-day resets show time, later resets show month and day.
-    const now = new Date();
-    const isSameDay =
-      resetAt.getFullYear() === now.getFullYear() &&
-      resetAt.getMonth() === now.getMonth() &&
-      resetAt.getDate() === now.getDate();
-    if (isSameDay) {
-      return new Intl.DateTimeFormat(i18n.resolveLocale(), {
-        hour: "2-digit",
-        minute: "2-digit",
-      }).format(resetAt);
-    }
-    return i18n.t("usage.date.monthDay", {
-      day: resetAt.getDate(),
-      month: resetAt.getMonth() + 1,
-    });
+    return formatUsageDate(resetAt, "--:--");
   }
 
   function formatTokenCount(value) {
@@ -106,6 +109,22 @@
     // Show only the Today aggregate total token count, keeping a placeholder when the source is unavailable or unsynced.
     if (!todayUsage?.available) return "--";
     return formatTodayTokenCount(todayUsage.totalTokens);
+  }
+
+  function formatResetCreditExpiry(value) {
+    // 这一段让重置次数有效期沿用用量窗口的本地化日期表达，不额外显示年份。
+    // Format reset-credit expiry like quota windows, using localized month/day without an extra year.
+    const date = new Date(value);
+    return formatUsageDate(date, "--");
+  }
+
+  function formatResetCredits(resetCredits) {
+    // 这一段只显示可用次数和最近有效期；缺少字段时保持占位，不展示原始响应。
+    // Show only the available count and nearest expiry; keep placeholders when fields are missing.
+    if (!resetCredits?.available) return "--";
+    const count = Number(resetCredits.availableCount);
+    const countText = Number.isFinite(count) && count >= 0 ? String(Math.round(count)) : "--";
+    return `${countText} / ${formatResetCreditExpiry(resetCredits.nearestExpiresAt)}`;
   }
 
   function formatInputTokenBreakdown(cachedInputTokens, inputTokens, options = {}) {
@@ -180,6 +199,18 @@
     ];
   }
 
+  function normalizeResetCreditRows(resetCredits) {
+    // 这一段生成重置次数单行，固定放在基础额度窗口之后。
+    // Build the reset-credit row, placed directly after the base quota windows.
+    return [
+      {
+        key: "reset-credits",
+        label: i18n.t("usage.resetCredits.label"),
+        value: formatResetCredits(resetCredits),
+      },
+    ];
+  }
+
   function normalizePingRows(ping) {
     // 这一段把可配置网络检测耗时作为最后一行展示，不混入用量或 token 语义。
     // Render the configurable network timing as the last row without mixing it with quota or token meaning.
@@ -194,6 +225,7 @@
 
   usagePanel.format = {
     normalizePingRows,
+    normalizeResetCreditRows,
     normalizeTodayTokenUsageRows,
     normalizeTokenUsageRows,
     normalizeUsageRows,

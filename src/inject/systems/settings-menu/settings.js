@@ -122,8 +122,10 @@
     showUsagePanelTokenDetails: false,
     showUsagePanelTotalInputTokens: false,
     showUsagePanelPing: true,
+    showUsagePanelResetCredits: true,
     usagePanelPingEndpoint: defaultUsagePanelPingEndpoint,
     usagePanelPingRefreshSeconds: 10,
+    usagePanelResetCreditsRefreshSeconds: 1800,
     usagePanelTodayTokenSource: "hidden",
     uiLanguage: "en-US",
     usagePanelAdaptiveWidth: false,
@@ -167,6 +169,7 @@
   const minPetEventSoundCooldownMs = 0;
   const minPetEventSoundVolume = 0;
   const minUsagePanelPingRefreshSeconds = 5;
+  const minUsagePanelResetCreditsRefreshSeconds = 60;
   const minUsageRefreshSeconds = 10;
   const mouseGestureShortcutCodes = Object.keys(defaultMouseGestureShortcuts);
   const shortcutModifierOrder = ["Ctrl", "Alt", "Shift", "Meta"];
@@ -444,6 +447,14 @@
     return Math.max(minUsagePanelPingRefreshSeconds, Math.round(seconds));
   }
 
+  function normalizeUsagePanelResetCreditsRefreshSeconds(value) {
+    // 这一段把重置次数刷新间隔限制到安全下限，避免认证接口被误设成高频轮询。
+    // Clamp the reset-credit refresh interval so authenticated endpoints cannot be polled too aggressively by mistake.
+    const seconds = Number(value);
+    if (!Number.isFinite(seconds)) return defaultSettings.usagePanelResetCreditsRefreshSeconds;
+    return Math.max(minUsagePanelResetCreditsRefreshSeconds, Math.round(seconds));
+  }
+
   function normalizeUsagePanelAdaptiveWidth(value) {
     // 这一段把用量面板自适应宽度开关统一成布尔值，缺省时保持旧版固定宽度。
     // Normalize the usage-panel adaptive-width switch into a boolean, defaulting to the old fixed width.
@@ -487,6 +498,13 @@
     // Normalize the Ping row switch into a two-way boolean, defaulting to visible network timing.
     if (value === true || value === false) return value;
     return defaultSettings.showUsagePanelPing;
+  }
+
+  function normalizeShowUsagePanelResetCredits(value) {
+    // 这一段把重置次数行开关统一成双向布尔值，缺省时默认显示。
+    // Normalize the reset-credit row switch into a two-way boolean, defaulting to visible.
+    if (value === true || value === false) return value;
+    return defaultSettings.showUsagePanelResetCredits;
   }
 
   function normalizeUsagePanelTodayTokenSource(value) {
@@ -947,8 +965,10 @@
     { key: "showUsagePanelTokenDetails", normalize: normalizeShowUsagePanelTokenDetails },
     { key: "showUsagePanelTotalInputTokens", normalize: normalizeShowUsagePanelTotalInputTokens },
     { key: "showUsagePanelPing", normalize: normalizeShowUsagePanelPing },
+    { key: "showUsagePanelResetCredits", normalize: normalizeShowUsagePanelResetCredits },
     { key: "usagePanelPingEndpoint", normalize: normalizeUsagePanelPingEndpoint },
     { key: "usagePanelPingRefreshSeconds", normalize: normalizeUsagePanelPingRefreshSeconds },
+    { key: "usagePanelResetCreditsRefreshSeconds", normalize: normalizeUsagePanelResetCreditsRefreshSeconds },
     { key: "usagePanelTodayTokenSource", normalize: normalizeUsagePanelTodayTokenSource },
     { key: "uiLanguage", normalize: normalizeUiLanguage, preserveOnPartialSave: true },
     { key: "usageRefreshSeconds", normalize: normalizeUsageRefreshSeconds },
@@ -1184,6 +1204,7 @@
     minPetEventSoundCooldownMs,
     minPetEventSoundVolume,
     minUsagePanelPingRefreshSeconds,
+    minUsagePanelResetCreditsRefreshSeconds,
     minUsageRefreshSeconds,
     mouseGestureShortcutCodes,
     normalizeMouseGestureShortcut,

@@ -28,8 +28,10 @@
       "showUsagePanelTokenDetails",
       "showUsagePanelTotalInputTokens",
       "showUsagePanelPing",
+      "showUsagePanelResetCredits",
       "usagePanelPingEndpoint",
       "usagePanelPingRefreshSeconds",
+      "usagePanelResetCreditsRefreshSeconds",
       "usagePanelTodayTokenSource",
       "usagePanelAdaptiveWidth",
       "usageRefreshSeconds",
@@ -40,8 +42,10 @@
       showUsagePanelTokenDetails: "enableUsagePanel",
       showUsagePanelTotalInputTokens: ["enableUsagePanel", "showUsagePanelTokenDetails"],
       showUsagePanelPing: "enableUsagePanel",
+      showUsagePanelResetCredits: "enableUsagePanel",
       usagePanelPingEndpoint: ["enableUsagePanel", "showUsagePanelPing"],
       usagePanelPingRefreshSeconds: ["enableUsagePanel", "showUsagePanelPing"],
+      usagePanelResetCreditsRefreshSeconds: ["enableUsagePanel", "showUsagePanelResetCredits"],
       usagePanelTodayTokenSource: "enableUsagePanel",
       usagePanelAdaptiveWidth: ["enableUsagePanel", "showUsageInLowerLeftPanel"],
       usageRefreshSeconds: "enableUsagePanel",
@@ -82,6 +86,20 @@
           helpKey: "settings.usagePanel.ping.help",
           key: "showUsagePanelPing",
           labelKey: "settings.usagePanel.ping.label",
+        })}
+        ${controls.renderSwitchField({
+          helpKey: "settings.usagePanel.resetCredits.help",
+          key: "showUsagePanelResetCredits",
+          labelKey: "settings.usagePanel.resetCredits.label",
+        })}
+        ${controls.renderNumberField({
+          copyParams: { min: settings.minUsagePanelResetCreditsRefreshSeconds },
+          helpKey: "settings.usagePanel.resetCreditsRefreshSeconds.help",
+          key: "usagePanelResetCreditsRefreshSeconds",
+          labelKey: "settings.usagePanel.resetCreditsRefreshSeconds.label",
+          min: settings.minUsagePanelResetCreditsRefreshSeconds,
+          step: "60",
+          unitKey: "common.secondsUnit",
         })}
         <label class="codex-pro-settings-field codex-pro-settings-field-stack" data-codex-pro-setting-key="usagePanelPingEndpoint">
           <span class="codex-pro-settings-copy">

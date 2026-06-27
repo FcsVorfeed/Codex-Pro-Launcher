@@ -108,6 +108,14 @@ assert(
   "Ping refresh interval should default to 10 seconds",
 );
 assert(
+  settings.defaultSettings.showUsagePanelResetCredits === true,
+  "reset credits row should default to visible",
+);
+assert(
+  settings.defaultSettings.usagePanelResetCreditsRefreshSeconds === 1800,
+  "reset credits refresh interval should default to 30 minutes",
+);
+assert(
   settings.defaultSettings.enableChatWidthResizer === true,
   "chat width resizer should default to enabled",
 );
@@ -231,8 +239,10 @@ const savedSettings = settings.saveSettings({
   petSyncRevision: 2,
   showUsageInLowerLeftPanel: true,
   showUsagePanelPing: false,
+  showUsagePanelResetCredits: false,
   usagePanelPingEndpoint: "https://example.com/ping",
   usagePanelPingRefreshSeconds: 20,
+  usagePanelResetCreditsRefreshSeconds: 90,
   showUsagePanelTokenDetails: true,
   usagePanelTodayTokenSource: "official",
   uiLanguage: "zh-CN",
@@ -260,8 +270,10 @@ assert(savedSettings.contextUsageRingCriticalColor === "#dc2626", "saveSettings 
 assert(savedSettings.conversationArchiveSidebarDirectoryPanelMode === "hover", "saveSettings should normalize changed left directory panel mode");
 assert(savedSettings.showUsageInLowerLeftPanel === true, "saveSettings should allow changed lower-left usage switch to turn on");
 assert(savedSettings.showUsagePanelPing === false, "saveSettings should allow changed Ping switch to turn off");
+assert(savedSettings.showUsagePanelResetCredits === false, "saveSettings should allow changed reset credits switch to turn off");
 assert(savedSettings.usagePanelPingEndpoint === "https://example.com/ping", "saveSettings should normalize changed Ping endpoint");
 assert(savedSettings.usagePanelPingRefreshSeconds === 20, "saveSettings should normalize changed Ping interval");
+assert(savedSettings.usagePanelResetCreditsRefreshSeconds === 90, "saveSettings should normalize changed reset credits interval");
 assert(savedSettings.showUsagePanelTokenDetails === true, "saveSettings should allow changed token details switch to turn on");
 assert(savedSettings.usagePanelTodayTokenSource === "official", "saveSettings should normalize changed Today token source");
 assert(savedSettings.uiLanguage === "zh-CN", "saveSettings should normalize changed UI language");
@@ -301,8 +313,10 @@ assert(rawSettings.contextUsageRingWarningColor === "#facc15", "changed warning 
 assert(rawSettings.contextUsageRingCriticalColor === "#dc2626", "changed critical ring color should be stored normalized");
 assert(rawSettings.showUsageInLowerLeftPanel === true, "changed lower-left usage switch should be stored as override");
 assert(rawSettings.showUsagePanelPing === false, "changed Ping switch should be stored as override");
+assert(rawSettings.showUsagePanelResetCredits === false, "changed reset credits switch should be stored as override");
 assert(rawSettings.usagePanelPingEndpoint === "https://example.com/ping", "changed Ping endpoint should be stored as override");
 assert(rawSettings.usagePanelPingRefreshSeconds === 20, "changed Ping interval should be stored as override");
+assert(rawSettings.usagePanelResetCreditsRefreshSeconds === 90, "changed reset credits interval should be stored as override");
 assert(rawSettings.showUsagePanelTokenDetails === true, "changed token details switch should be stored as override");
 assert(rawSettings.usagePanelTodayTokenSource === "official", "changed Today token source should be stored as override");
 assert(rawSettings.uiLanguage === "zh-CN", "changed UI language should be stored as override");
@@ -372,8 +386,10 @@ assert(rawSettings.petEventSoundVolumes.waiting === 0, "partial metadata save sh
 assert(rawSettings.conversationArchiveSidebarDirectoryPanelMode === "hover", "partial metadata save should preserve left directory panel mode");
 assert(rawSettings.showUsageInLowerLeftPanel === true, "partial metadata save should preserve lower-left usage switch");
 assert(rawSettings.showUsagePanelPing === false, "partial metadata save should preserve Ping switch");
+assert(rawSettings.showUsagePanelResetCredits === false, "partial metadata save should preserve reset credits switch");
 assert(rawSettings.usagePanelPingEndpoint === "https://example.com/ping", "partial metadata save should preserve Ping endpoint");
 assert(rawSettings.usagePanelPingRefreshSeconds === 20, "partial metadata save should preserve Ping interval");
+assert(rawSettings.usagePanelResetCreditsRefreshSeconds === 90, "partial metadata save should preserve reset credits interval");
 assert(rawSettings.showUsagePanelTokenDetails === true, "partial metadata save should preserve token details switch");
 assert(rawSettings.usagePanelTodayTokenSource === "official", "partial metadata save should preserve Today token source");
 assert(rawSettings.chatWidthMode === "custom", "partial metadata save should preserve chat width mode");
@@ -453,6 +469,16 @@ settings.saveSettings({
 rawSettings = readStoredSettings();
 assert(rawSettings.usagePanelPingEndpoint === "http://127.0.0.1:12345/ping", "local HTTP Ping endpoint should be stored as override");
 assert(rawSettings.usagePanelPingRefreshSeconds === settings.minUsagePanelPingRefreshSeconds, "short Ping interval should clamp to the minimum");
+
+settings.saveSettings({
+  ...settings.getSettings(),
+  usagePanelResetCreditsRefreshSeconds: 1,
+});
+rawSettings = readStoredSettings();
+assert(
+  rawSettings.usagePanelResetCreditsRefreshSeconds === settings.minUsagePanelResetCreditsRefreshSeconds,
+  "short reset credits interval should clamp to the minimum",
+);
 
 settings.saveSettings({
   ...settings.getSettings(),

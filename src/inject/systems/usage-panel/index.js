@@ -5,6 +5,7 @@
   runtime.registerSystem("usage-panel", () => {
     const { api, format, view } = runtime.systemModules.usagePanel;
     const settings = runtime.systemModules.settingsMenu?.settings;
+    const defaultResetCreditsRefreshSeconds = 1800;
     const todayTokenRefreshMs = 60_000;
     const hiddenTodayTokenSource = "hidden";
 
@@ -18,21 +19,25 @@
     view.bindHoverTransparency(root, controller.signal);
     view.bindNativeMenuVisibility(root, settings, controller.signal);
     view.bindAdaptiveWidth(root, settings, controller.signal);
-    view.bindEnvironmentPanelUsage(settings, controller.signal);
 
     // 这一段合并额度窗口、当前对话 token 行和可配置 Ping 行，设置关闭时不生成对应行。
     // Merge quota-window rows, current-conversation token rows, and the configurable Ping row, omitting disabled rows.
     let latestUsageSnapshot = null;
     let latestPingSnapshot = null;
+    let latestResetCreditsSnapshot = null;
     let latestTodayTokenSnapshot = null;
     let activeTodayTokenSource = settings?.getSettings?.()?.usagePanelTodayTokenSource || hiddenTodayTokenSource;
     let activePingEndpoint = settings?.getSettings?.()?.usagePanelPingEndpoint || "";
     let pingRequestInFlight = false;
+    let resetCreditsRequestInFlight = false;
     let todayTokenRequestInFlight = false;
     let todayTokenRequestInFlightSource = "";
     const buildRows = (usage) => {
       const rows = format.normalizeUsageRows(usage);
       const latestSettings = settings?.getSettings?.() || {};
+      if (latestSettings.showUsagePanelResetCredits !== false) {
+        rows.push(...format.normalizeResetCreditRows(latestResetCreditsSnapshot));
+      }
       if ((latestSettings.usagePanelTodayTokenSource || hiddenTodayTokenSource) !== hiddenTodayTokenSource) {
         rows.push(...format.normalizeTodayTokenUsageRows(latestTodayTokenSnapshot));
       }
@@ -72,6 +77,32 @@
           view.renderEnvironmentUsageRows(rows);
           view.renderUsageStatus(root, unavailableText);
           view.renderEnvironmentUsageStatus(unavailableText);
+        });
+    };
+
+    const refreshResetCredits = () => {
+      const latestSettings = settings?.getSettings?.() || {};
+      if (latestSettings.showUsagePanelResetCredits === false) {
+        latestResetCreditsSnapshot = null;
+        renderRowsFromSnapshot();
+        return;
+      }
+      if (resetCreditsRequestInFlight) return;
+      resetCreditsRequestInFlight = true;
+      api
+        .fetchResetCredits(controller.signal)
+        .then((resetCredits) => {
+          if (settings?.getSettings?.()?.showUsagePanelResetCredits === false) return;
+          latestResetCreditsSnapshot = resetCredits;
+          renderRowsFromSnapshot();
+        })
+        .catch((error) => {
+          if (error?.name === "AbortError") return;
+          latestResetCreditsSnapshot = null;
+          renderRowsFromSnapshot();
+        })
+        .finally(() => {
+          resetCreditsRequestInFlight = false;
         });
     };
 
@@ -138,6 +169,7 @@
     };
     let intervalId = 0;
     let pingIntervalId = 0;
+    let resetCreditsIntervalId = 0;
     let todayTokenIntervalId = 0;
     const unsubscribeTokenUsage = api.bindConversationTokenUsageUpdates?.(() => renderRowsFromSnapshot(), controller.signal);
     const unsubscribeCurrentThread = api.bindCurrentThreadChange?.(() => renderRowsFromSnapshot(), controller.signal);
@@ -150,6 +182,22 @@
       const refreshMs = refreshSeconds * 1000;
       intervalId = window.setInterval(refresh, refreshMs);
       if (shouldRefreshNow) refresh();
+    };
+
+    // 这一段按设置重建重置次数定时器；关闭该行时立即清掉快照并重渲染。
+    // Rebuild the reset-credit timer from settings; clear the snapshot immediately when disabled.
+    const restartResetCreditsTimer = (shouldRefreshNow = false) => {
+      window.clearInterval(resetCreditsIntervalId);
+      const latestSettings = settings?.getSettings?.() || {};
+      if (latestSettings.showUsagePanelResetCredits === false) {
+        latestResetCreditsSnapshot = null;
+        renderRowsFromSnapshot();
+        return;
+      }
+      const refreshSeconds = latestSettings.usagePanelResetCreditsRefreshSeconds || defaultResetCreditsRefreshSeconds;
+      const resetCreditsRefreshMs = refreshSeconds * 1000;
+      resetCreditsIntervalId = window.setInterval(refreshResetCredits, resetCreditsRefreshMs);
+      if (shouldRefreshNow) refreshResetCredits();
     };
 
     // 这一段按设置重建 Ping 定时器；关闭该行或切换地址时立即清掉快照并重渲染。
@@ -192,9 +240,13 @@
     };
     const unsubscribeSettings = settings?.subscribe?.(() => {
       restartRefreshTimer(true);
+      restartResetCreditsTimer(true);
       restartPingTimer(true);
       restartTodayTokenTimer(true);
     }, controller.signal);
+    view.bindEnvironmentPanelUsage(settings, controller.signal, {
+      onPanelVisible: () => refreshResetCredits(),
+    });
 
     // 这一段在系统结束时清除刷新定时器，避免后台继续请求。
     // Clear the refresh timer when the system ends so background requests stop.
@@ -203,6 +255,7 @@
       () => {
         window.clearInterval(intervalId);
         window.clearInterval(pingIntervalId);
+        window.clearInterval(resetCreditsIntervalId);
         window.clearInterval(todayTokenIntervalId);
         unsubscribeCurrentThread?.();
         unsubscribeTokenUsage?.();
@@ -213,6 +266,7 @@
     );
 
     restartRefreshTimer(true);
+    restartResetCreditsTimer(true);
     restartPingTimer(true);
     restartTodayTokenTimer(true);
   }, { enableSetting: "enableUsagePanel" });

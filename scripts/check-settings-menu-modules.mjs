@@ -148,8 +148,10 @@ const expectedSections = [
       "showUsagePanelTokenDetails",
       "showUsagePanelTotalInputTokens",
       "showUsagePanelPing",
+      "showUsagePanelResetCredits",
       "usagePanelPingEndpoint",
       "usagePanelPingRefreshSeconds",
+      "usagePanelResetCreditsRefreshSeconds",
       "usagePanelTodayTokenSource",
       "usagePanelAdaptiveWidth",
       "usageRefreshSeconds",
@@ -160,8 +162,10 @@ const expectedSections = [
       showUsagePanelTokenDetails: "enableUsagePanel",
       showUsagePanelTotalInputTokens: ["enableUsagePanel", "showUsagePanelTokenDetails"],
       showUsagePanelPing: "enableUsagePanel",
+      showUsagePanelResetCredits: "enableUsagePanel",
       usagePanelPingEndpoint: ["enableUsagePanel", "showUsagePanelPing"],
       usagePanelPingRefreshSeconds: ["enableUsagePanel", "showUsagePanelPing"],
+      usagePanelResetCreditsRefreshSeconds: ["enableUsagePanel", "showUsagePanelResetCredits"],
       usagePanelTodayTokenSource: "enableUsagePanel",
       usagePanelAdaptiveWidth: ["enableUsagePanel", "showUsageInLowerLeftPanel"],
       usageRefreshSeconds: "enableUsagePanel",
@@ -341,6 +345,7 @@ function createSettingsApi() {
     minPetEventSoundCooldownMs: 0,
     minPetEventSoundVolume: 0,
     minUsageRefreshSeconds: 5,
+    minUsagePanelResetCreditsRefreshSeconds: 60,
     minContextUsageDecimalPlaces: 0,
     maxContextUsageDecimalPlaces: 2,
     minContextUsageRingThreshold: 0,
@@ -460,8 +465,10 @@ function assertFormBindingBehavior(formBinding) {
         showUsagePanelTokenDetails: true,
         showUsagePanelTotalInputTokens: false,
         showUsagePanelPing: true,
+        showUsagePanelResetCredits: true,
         usagePanelPingEndpoint: "https://status.openai.com/api/v2/status.json",
         usagePanelPingRefreshSeconds: 10,
+        usagePanelResetCreditsRefreshSeconds: 1800,
         usagePanelTodayTokenSource: "observer",
         enableUsagePanel: true,
         chatWidthMode: "custom",
@@ -477,8 +484,10 @@ function assertFormBindingBehavior(formBinding) {
       { key: "showUsagePanelTokenDetails" },
       { key: "showUsagePanelTotalInputTokens" },
       { key: "showUsagePanelPing" },
+      { key: "showUsagePanelResetCredits" },
       { key: "usagePanelPingEndpoint" },
       { key: "usagePanelPingRefreshSeconds" },
+      { key: "usagePanelResetCreditsRefreshSeconds" },
       { key: "usagePanelTodayTokenSource" },
       { key: "usagePanelAdaptiveWidth" },
       { key: "usageRefreshSeconds" },
@@ -511,6 +520,11 @@ function assertFormBindingBehavior(formBinding) {
         field: createFakeSettingField(),
         type: "checkbox",
       }),
+      showUsagePanelResetCredits: createFakeControl({
+        checked: false,
+        field: createFakeSettingField(),
+        type: "checkbox",
+      }),
       usagePanelPingEndpoint: createFakeControl({
         field: createFakeSettingField(),
         type: "url",
@@ -520,6 +534,11 @@ function assertFormBindingBehavior(formBinding) {
         field: createFakeSettingField(),
         type: "number",
         value: "20",
+      }),
+      usagePanelResetCreditsRefreshSeconds: createFakeControl({
+        field: createFakeSettingField(),
+        type: "number",
+        value: "120",
       }),
       usagePanelTodayTokenSource: createFakeControl({
         field: createFakeSettingField(),
@@ -546,8 +565,10 @@ function assertFormBindingBehavior(formBinding) {
   assert(draftSettings.showUsagePanelTokenDetails === true, "form-binding must read token-detail checkbox fields");
   assert(draftSettings.showUsagePanelTotalInputTokens === false, "form-binding must read input-token total checkbox fields");
   assert(draftSettings.showUsagePanelPing === true, "form-binding must read Ping checkbox fields");
+  assert(draftSettings.showUsagePanelResetCredits === false, "form-binding must read reset credits checkbox fields");
   assert(draftSettings.usagePanelPingEndpoint === "https://example.com/ping", "form-binding must read Ping endpoint fields");
   assert(draftSettings.usagePanelPingRefreshSeconds === "20", "form-binding must read Ping interval fields");
+  assert(draftSettings.usagePanelResetCreditsRefreshSeconds === "120", "form-binding must read reset credits interval fields");
   assert(draftSettings.usagePanelTodayTokenSource === "observer", "form-binding must read Today token source select fields");
   assert(draftSettings.usagePanelAdaptiveWidth === false, "form-binding must read multi-dependent checkbox fields");
   assert(draftSettings.usageRefreshSeconds === "45", "form-binding must read normal value fields");
@@ -571,8 +592,10 @@ function assertFormBindingBehavior(formBinding) {
       showUsagePanelTokenDetails: true,
       showUsagePanelTotalInputTokens: false,
       showUsagePanelPing: true,
+      showUsagePanelResetCredits: true,
       usagePanelPingEndpoint: "https://status.openai.com/api/v2/status.json",
       usagePanelPingRefreshSeconds: 10,
+      usagePanelResetCreditsRefreshSeconds: 1800,
       usagePanelTodayTokenSource: "official",
       usagePanelAdaptiveWidth: false,
       usageRefreshSeconds: 15,
@@ -583,8 +606,10 @@ function assertFormBindingBehavior(formBinding) {
   assert(fakeForm.elements.enableUsagePanel.checked === true, "form-binding must write checkbox fields");
   assert(fakeForm.elements.showUsagePanelTotalInputTokens.checked === false, "form-binding must write input-token total checkbox fields");
   assert(fakeForm.elements.showUsagePanelPing.checked === true, "form-binding must write Ping checkbox fields");
+  assert(fakeForm.elements.showUsagePanelResetCredits.checked === true, "form-binding must write reset credits checkbox fields");
   assert(fakeForm.elements.usagePanelPingEndpoint.value === "https://status.openai.com/api/v2/status.json", "form-binding must write Ping endpoint fields");
   assert(fakeForm.elements.usagePanelPingRefreshSeconds.value === "10", "form-binding must write Ping interval fields");
+  assert(fakeForm.elements.usagePanelResetCreditsRefreshSeconds.value === "1800", "form-binding must write reset credits interval fields");
   assert(fakeForm.elements.usagePanelTodayTokenSource.value === "official", "form-binding must write Today token source select fields");
   assert(fakeForm.elements.usageRefreshSeconds.value === "15", "form-binding must write normal value fields");
   formBinding.applyFieldDependencyState({ form: fakeForm });
@@ -592,6 +617,7 @@ function assertFormBindingBehavior(formBinding) {
   assert(fakeForm.elements.showUsagePanelPing.disabled === false, "form-binding must enable Ping fields when dependencies pass");
   assert(fakeForm.elements.usagePanelPingEndpoint.disabled === false, "form-binding must enable Ping endpoint fields when dependencies pass");
   assert(fakeForm.elements.usagePanelPingRefreshSeconds.disabled === false, "form-binding must enable Ping interval fields when dependencies pass");
+  assert(fakeForm.elements.usagePanelResetCreditsRefreshSeconds.disabled === false, "form-binding must enable reset credits interval fields when dependencies pass");
   assert(fakeForm.elements.usagePanelTodayTokenSource.disabled === false, "form-binding must enable Today token source when dependencies pass");
   assert(fakeForm.elements.usageRefreshSeconds.disabled === false, "form-binding must enable fields when dependencies pass");
   assert(
@@ -608,6 +634,10 @@ function assertFormBindingBehavior(formBinding) {
   assert(fakeForm.elements.usagePanelPingEndpoint.disabled === true, "form-binding must disable Ping endpoint fields when Ping is hidden");
   assert(fakeForm.elements.usagePanelPingRefreshSeconds.disabled === true, "form-binding must disable Ping interval fields when Ping is hidden");
   fakeForm.elements.showUsagePanelPing.checked = true;
+  fakeForm.elements.showUsagePanelResetCredits.checked = false;
+  formBinding.applyFieldDependencyState({ form: fakeForm });
+  assert(fakeForm.elements.usagePanelResetCreditsRefreshSeconds.disabled === true, "form-binding must disable reset credits interval when reset credits are hidden");
+  fakeForm.elements.showUsagePanelResetCredits.checked = true;
   fakeForm.elements.showUsageInLowerLeftPanel.checked = false;
   formBinding.applyFieldDependencyState({ form: fakeForm });
   assert(fakeForm.elements.usagePanelAdaptiveWidth.disabled === true, "form-binding must disable multi-dependent fields when a secondary dependency fails");
@@ -616,8 +646,10 @@ function assertFormBindingBehavior(formBinding) {
   formBinding.applyFieldDependencyState({ form: fakeForm });
   assert(fakeForm.elements.usageRefreshSeconds.disabled === true, "form-binding must disable fields when dependencies fail");
   assert(fakeForm.elements.showUsagePanelPing.disabled === true, "form-binding must disable Ping fields when dependencies fail");
+  assert(fakeForm.elements.showUsagePanelResetCredits.disabled === true, "form-binding must disable reset credits switch when dependencies fail");
   assert(fakeForm.elements.usagePanelPingEndpoint.disabled === true, "form-binding must disable Ping endpoint fields when dependencies fail");
   assert(fakeForm.elements.usagePanelPingRefreshSeconds.disabled === true, "form-binding must disable Ping interval fields when dependencies fail");
+  assert(fakeForm.elements.usagePanelResetCreditsRefreshSeconds.disabled === true, "form-binding must disable reset credits interval when dependencies fail");
   assert(fakeForm.elements.usagePanelTodayTokenSource.disabled === true, "form-binding must disable Today token source when dependencies fail");
   assert(
     fakeForm.elements.showUsagePanelPing.closest("[data-codex-pro-setting-key]").dataset.codexProDisabled === "true",
@@ -1070,6 +1102,8 @@ const rustSyncableSettingKeys = extractRustStringList(rustCloudSyncSource, "clou
 assertSameStringList(rustSyncableSettingKeys, pageSyncableSettingKeys, "Rust native cloud-sync allow-list");
 assert(pageSyncableSettingKeys.includes("usagePanelPingEndpoint"), "cloud sync should include Ping endpoint");
 assert(pageSyncableSettingKeys.includes("usagePanelPingRefreshSeconds"), "cloud sync should include Ping interval");
+assert(pageSyncableSettingKeys.includes("showUsagePanelResetCredits"), "cloud sync should include reset credits switch");
+assert(pageSyncableSettingKeys.includes("usagePanelResetCreditsRefreshSeconds"), "cloud sync should include reset credits interval");
 assert(
   cloudSyncSource.includes('new Set(["zh-CN", "en-US", "ja-JP"])') && cloudSyncSource.includes('Object.hasOwn(payload, "uiLanguage")'),
   "settings-menu cloud sync must sanitize uiLanguage values",

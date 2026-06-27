@@ -993,26 +993,34 @@
     });
   }
 
-  function bindEnvironmentPanelUsage(settingsApi, signal) {
+  function bindEnvironmentPanelUsage(settingsApi, signal, options = {}) {
     // 这一段按设置把用量 section 挂到右上原生环境面板，面板不存在或关闭时清理自有节点。
     // Attach the usage section into the top-right native environment panel by setting, cleaning up when absent or disabled.
     let frameId = 0;
     const timeoutIds = new Set();
     let latestSettings = settingsApi?.getSettings?.() || {};
+    let panelWasVisible = false;
+    const onPanelVisible = typeof options.onPanelVisible === "function" ? options.onPanelVisible : null;
 
     const syncEnvironmentPanel = () => {
       frameId = 0;
       if (latestSettings.showUsageInEnvironmentPanel === false) {
+        panelWasVisible = false;
         removeEnvironmentUsageSections();
         return;
       }
       const content = findEnvironmentPanelContent();
       if (!content) {
+        panelWasVisible = false;
         removeEnvironmentUsageSections();
         return;
       }
       ensureEnvironmentUsageSection(content);
       removeEnvironmentUsageSections(content);
+      if (!panelWasVisible) {
+        panelWasVisible = true;
+        onPanelVisible?.();
+      }
     };
     const scheduleSync = () => {
       if (frameId) return;
