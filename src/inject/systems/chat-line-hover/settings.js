@@ -3,7 +3,8 @@
   if (!runtime) return;
   const settingsMenu = runtime.systemModules.settingsMenu ??= {};
   const controls = settingsMenu.sectionControls;
-  if (!settingsMenu.registerSection || !controls) return;
+  const i18n = runtime.i18n;
+  if (!settingsMenu.registerSection || !controls || !i18n) return;
 
   const icon = `
     <svg class="codex-pro-settings-section-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -17,13 +18,13 @@
   settingsMenu.registerSection({
     icon,
     fieldDependencies: {
-      expandChatLineHoverToLine: "enableChatLineHover",
+      chatLineHoverDisplayMode: "enableChatLineHover",
     },
     id: "chat-line-hover",
     labelKey: "settings.chatLineHover.label",
     noteKey: "settings.chatLineHover.note",
     order: 36,
-    settingKeys: ["enableChatLineHover", "expandChatLineHoverToLine"],
+    settingKeys: ["enableChatLineHover", "chatLineHoverDisplayMode"],
     sourcePath: "src/inject/systems/chat-line-hover/settings.js",
     sourceSystem: "chat-line-hover",
     titleKey: "settings.chatLineHover.title",
@@ -36,11 +37,17 @@
           key: "enableChatLineHover",
           labelKey: "settings.chatLineHover.enable.label",
         })}
-        ${controls.renderSwitchField({
-          helpKey: "settings.chatLineHover.expand.help",
-          key: "expandChatLineHoverToLine",
-          labelKey: "settings.chatLineHover.expand.label",
-        })}
+        <label class="codex-pro-settings-field" data-codex-pro-setting-key="chatLineHoverDisplayMode">
+          <span class="codex-pro-settings-copy">
+            <span class="codex-pro-settings-label">${i18n.html("settings.chatLineHover.mode.label")}</span>
+            <span class="codex-pro-settings-help">${i18n.html("settings.chatLineHover.mode.help")}</span>
+          </span>
+          <select class="codex-pro-settings-select" name="chatLineHoverDisplayMode">
+            <option value="line">${i18n.html("settings.chatLineHover.mode.line")}</option>
+            <option value="full-line">${i18n.html("settings.chatLineHover.mode.fullLine")}</option>
+            <option value="block">${i18n.html("settings.chatLineHover.mode.block")}</option>
+          </select>
+        </label>
       `;
     },
   });

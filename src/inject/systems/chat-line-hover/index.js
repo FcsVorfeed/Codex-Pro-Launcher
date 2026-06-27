@@ -7,6 +7,10 @@
   const lineId = "codex-pro-chat-line-hover";
   const pointTolerancePixels = 3;
   const minimumLineWidthPixels = 12;
+  const minimumBlockHeightPixels = 10;
+  const blockFramePaddingX = 8;
+  const blockFramePaddingY = 5;
+  const chatLineHoverDisplayModes = new Set(["line", "full-line", "block"]);
   const chatTextRootSelector = [
     "[data-selected-text-overlay-target]",
     "[data-user-message-bubble='true'] [class*='whitespace-pre-wrap']",
@@ -43,11 +47,9 @@
         #${lineId} {
           position: fixed;
           z-index: 2147482300;
+          box-sizing: border-box;
           height: 1px;
           min-width: ${minimumLineWidthPixels}px;
-          background: color-mix(in srgb, CanvasText 38%, transparent);
-          border-radius: 999px;
-          box-shadow: 0 0 0 0.5px color-mix(in srgb, CanvasText 10%, transparent);
           opacity: 0;
           pointer-events: none;
           transform: translate3d(0, 0, 0);
@@ -55,10 +57,26 @@
             opacity 140ms ease,
             left 70ms cubic-bezier(0.2, 0, 0.2, 1),
             top 70ms cubic-bezier(0.2, 0, 0.2, 1),
-            width 70ms cubic-bezier(0.2, 0, 0.2, 1);
+            width 70ms cubic-bezier(0.2, 0, 0.2, 1),
+            height 70ms cubic-bezier(0.2, 0, 0.2, 1);
           user-select: none;
-          will-change: left, top, width, opacity;
+          will-change: left, top, width, height, opacity;
           -webkit-user-select: none;
+        }
+        #${lineId}[data-codex-pro-chat-line-hover-mode="line"],
+        #${lineId}[data-codex-pro-chat-line-hover-mode="full-line"] {
+          background: color-mix(in srgb, CanvasText 38%, transparent);
+          border: 0;
+          border-radius: 999px;
+          box-shadow: 0 0 0 0.5px color-mix(in srgb, CanvasText 10%, transparent);
+        }
+        #${lineId}[data-codex-pro-chat-line-hover-mode="block"] {
+          background: color-mix(in srgb, Highlight 8%, transparent);
+          border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+          border-radius: 8px;
+          box-shadow:
+            0 10px 26px color-mix(in srgb, CanvasText 8%, transparent),
+            inset 0 1px 0 color-mix(in srgb, Canvas 55%, transparent);
         }
         #${lineId}[data-codex-pro-chat-line-hover-visible="true"] {
           opacity: 0.82;
@@ -262,6 +280,26 @@
     };
   }
 
+  function getBlockHoverRect(textNode, y) {
+    // 这一段把当前局部文本块扩成轻量圆角框，仍只读取最近块的几何信息。
+    // Expand the current local text block into a lightweight rounded frame while reading only the nearest block geometry.
+    const block = findLineBlock(textNode);
+    const contentRect = getLineBlockContentRect(block);
+    if (!contentRect || !rectContainsY(contentRect, y)) return null;
+    const left = Math.max(0, Math.floor(contentRect.left - blockFramePaddingX));
+    const right = Math.min(window.innerWidth, Math.ceil(contentRect.right + blockFramePaddingX));
+    const top = Math.max(0, Math.floor(contentRect.top - blockFramePaddingY));
+    const bottom = Math.min(window.innerHeight, Math.ceil(contentRect.bottom + blockFramePaddingY));
+    if (right - left < minimumLineWidthPixels || bottom - top < minimumBlockHeightPixels) return null;
+    return {
+      height: bottom - top,
+      left,
+      mode: "block",
+      top,
+      width: right - left,
+    };
+  }
+
   function getExpandedLineRect(textNode, sourceRect, y) {
     // 这一段把线条横向扩展到当前文本块内容宽度，纵向仍锁定当前命中文本行。
     // Expand the line horizontally to the current text block content width while keeping the hit row vertically locked.
@@ -276,27 +314,41 @@
     };
   }
 
-  function computeLineRect(x, y, options = {}) {
-    // 这一段完成一次鼠标坐标到行矩形的转换；失败时返回 null 让 UI 隐藏。
-    // Convert one pointer coordinate into a line rectangle; return null on any miss so the UI hides.
+  function normalizeDisplayMode(settings = {}) {
+    // 这一段读取新显示模式，并兼容旧版本的“整行显示”布尔设置。
+    // Read the new display mode while preserving the older full-row boolean setting.
+    const mode = String(settings.chatLineHoverDisplayMode || "").trim();
+    if (chatLineHoverDisplayModes.has(mode)) return mode;
+    return settings.expandChatLineHoverToLine === true ? "full-line" : "line";
+  }
+
+  function computeHoverRect(x, y, options = {}) {
+    // 这一段完成一次鼠标坐标到悬浮几何的转换；失败时返回 null 让 UI 隐藏。
+    // Convert one pointer coordinate into hover geometry; return null on any miss so the UI hides.
     const textNode = findTextNodeAtPoint(x, y);
     if (!textNode) return null;
     const textRect = getTextNodePointRect(textNode, x, y);
     if (!textRect) return null;
-    const lineRect = options.expandToLine === true
+    if (options.displayMode === "block") {
+      const blockRect = getBlockHoverRect(textNode, y);
+      if (blockRect) return blockRect;
+    }
+    const lineRect = options.displayMode === "full-line"
       ? getExpandedLineRect(textNode, textRect, y)
       : textRect;
     const left = Math.max(0, Math.floor(lineRect.left));
     const right = Math.min(window.innerWidth, Math.ceil(lineRect.right));
     if (right - left < minimumLineWidthPixels) return null;
     return {
-      bottom: Math.min(window.innerHeight, Math.ceil(lineRect.bottom)),
+      height: 1,
       left,
+      mode: options.displayMode === "full-line" ? "full-line" : "line",
+      top: Math.min(window.innerHeight, Math.ceil(lineRect.bottom) + 1),
       width: right - left,
     };
   }
 
-  function placeLine(line, rect) {
+  function placeHoverOverlay(line, rect) {
     // 这一段只写入 overlay 的几何样式，不改任何 Codex 原生节点。
     // Write only overlay geometry styles without mutating any native Codex nodes.
     if (!rect) {
@@ -304,8 +356,10 @@
       return;
     }
     line.style.left = `${rect.left}px`;
-    line.style.top = `${rect.bottom + 1}px`;
+    line.style.top = `${rect.top}px`;
     line.style.width = `${rect.width}px`;
+    line.style.height = `${rect.height}px`;
+    line.dataset.codexProChatLineHoverMode = rect.mode || "line";
     line.dataset.codexProChatLineHoverVisible = "true";
   }
 
@@ -316,7 +370,7 @@
 
     installStyles();
     const line = ensureLine(controller.signal);
-    let expandToLine = (runtime.systemModules.settingsMenu?.settings?.getSettings?.() || {}).expandChatLineHoverToLine === true;
+    let displayMode = normalizeDisplayMode(runtime.systemModules.settingsMenu?.settings?.getSettings?.() || {});
     let frameId = 0;
     let lastPointer = null;
 
@@ -337,7 +391,7 @@
           hideLine();
           return;
         }
-        placeLine(line, computeLineRect(lastPointer.x, lastPointer.y, { expandToLine }));
+        placeHoverOverlay(line, computeHoverRect(lastPointer.x, lastPointer.y, { displayMode }));
       });
     }
 
@@ -375,7 +429,7 @@
       sync(settings = {}) {
         // 这一段设置变化时只按最后鼠标位置重算；开关关闭由 runtime 统一 abort。
         // On setting changes, just recompute against the last pointer; runtime handles abort when disabled.
-        expandToLine = settings.expandChatLineHoverToLine === true;
+        displayMode = normalizeDisplayMode(settings);
         if (lastPointer) scheduleUpdate(lastPointer);
       },
     };

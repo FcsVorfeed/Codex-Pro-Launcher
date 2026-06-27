@@ -124,6 +124,10 @@ assert(
   "chat line hover should default to disabled",
 );
 assert(
+  settings.defaultSettings.chatLineHoverDisplayMode === "block",
+  "chat line hover display mode should default to rounded text-block frame",
+);
+assert(
   settings.defaultSettings.expandChatLineHoverToLine === true,
   "chat line hover full-row guide should default to enabled",
 );
@@ -207,6 +211,7 @@ const savedSettings = settings.saveSettings({
   enableConversationArchiveSync: true,
   enableBackgroundWallpaper: true,
   enableChatLineHover: true,
+  chatLineHoverDisplayMode: "line",
   enableChatWidthResizer: false,
   enableCodexSqliteLogInsertBlocker: true,
   enableSplitItemsHotpathPatch: false,
@@ -256,6 +261,7 @@ assert(savedSettings.enableConversationArchiveSidebar === false, "saveSettings s
 assert(savedSettings.enableConversationArchiveSync === true, "saveSettings should normalize changed archive sync switch");
 assert(savedSettings.enableBackgroundWallpaper === true, "saveSettings should allow changed background wallpaper switch to turn on");
 assert(savedSettings.enableChatLineHover === true, "saveSettings should allow chat line hover switch to turn on");
+assert(savedSettings.chatLineHoverDisplayMode === "line", "saveSettings should allow chat line hover current-line display mode");
 assert(savedSettings.expandChatLineHoverToLine === false, "saveSettings should allow chat line hover full-row guide to turn off");
 assert(savedSettings.enableChatWidthResizer === false, "saveSettings should allow changed chat width resizer switch to turn off");
 assert(savedSettings.enableCodexSqliteLogInsertBlocker === true, "saveSettings should allow Codex SQLite log blocker to turn on");
@@ -300,6 +306,7 @@ assert(rawSettings.enableConversationArchiveSidebar === false, "changed archive 
 assert(rawSettings.enableConversationArchiveSync === true, "changed archive sync switch should be stored as override");
 assert(rawSettings.enableBackgroundWallpaper === true, "changed background wallpaper switch should be stored as override");
 assert(rawSettings.enableChatLineHover === true, "changed chat line hover switch should be stored as override");
+assert(rawSettings.chatLineHoverDisplayMode === "line", "changed chat line hover display mode should be stored as override");
 assert(rawSettings.expandChatLineHoverToLine === false, "changed chat line hover full-row guide should be stored as override");
 assert(rawSettings.enableChatWidthResizer === false, "changed chat width resizer switch should be stored as override");
 assert(rawSettings.enableCodexSqliteLogInsertBlocker === true, "changed Codex SQLite log blocker switch should be stored as override");
@@ -366,6 +373,7 @@ assert(rawSettings.collapseSidebarOnStartup === true, "partial metadata save sho
 assert(rawSettings.enableConversationArchiveSidebar === false, "partial metadata save should preserve archive sidebar switch");
 assert(rawSettings.enableBackgroundWallpaper === true, "partial metadata save should preserve background wallpaper switch");
 assert(rawSettings.enableChatLineHover === true, "partial metadata save should preserve chat line hover switch");
+assert(rawSettings.chatLineHoverDisplayMode === "line", "partial metadata save should preserve chat line hover display mode");
 assert(rawSettings.expandChatLineHoverToLine === false, "partial metadata save should preserve chat line hover full-row guide");
 assert(rawSettings.enableChatWidthResizer === false, "partial metadata save should preserve chat width resizer switch");
 assert(rawSettings.enableCodexSqliteLogInsertBlocker === true, "partial metadata save should preserve Codex SQLite log blocker switch");

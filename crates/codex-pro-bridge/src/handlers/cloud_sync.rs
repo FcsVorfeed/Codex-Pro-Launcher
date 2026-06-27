@@ -217,6 +217,14 @@ fn sanitize_settings(value: &Value) -> Option<Map<String, Value>> {
                     continue;
                 }
             }
+            "chatLineHoverDisplayMode" => {
+                let mode = value.as_str().unwrap_or_default();
+                if mode == "line" || mode == "full-line" || mode == "block" {
+                    Value::String(mode.to_string())
+                } else {
+                    continue;
+                }
+            }
             "backgroundWallpaperImages" => {
                 let mut urls = Vec::new();
                 for line in value.as_str().unwrap_or_default().lines().map(str::trim) {
@@ -338,6 +346,7 @@ fn cloud_sync_allowed_setting_keys() -> HashSet<&'static str> {
         "backgroundWallpaperRandom",
         "backgroundWallpaperSize",
         "collapseSidebarOnStartup",
+        "chatLineHoverDisplayMode",
         "chatWidthMode",
         "chatWidthPixels",
         "contextUsageDecimalPlaces",
@@ -442,6 +451,7 @@ mod tests {
                 "settings": {
                     "uiLanguage": "zh-CN",
                     "enableChatLineHover": true,
+                    "chatLineHoverDisplayMode": "block",
                     "expandChatLineHoverToLine": true,
                     "enableChatWidthResizer": true,
                     "chatWidthMode": "custom",
@@ -453,6 +463,10 @@ mod tests {
         })).unwrap();
         assert_eq!(request.body["settings"]["uiLanguage"], "zh-CN");
         assert_eq!(request.body["settings"]["enableChatLineHover"], true);
+        assert_eq!(
+            request.body["settings"]["chatLineHoverDisplayMode"],
+            "block"
+        );
         assert_eq!(request.body["settings"]["expandChatLineHoverToLine"], true);
         assert_eq!(request.body["settings"]["enableChatWidthResizer"], true);
         assert_eq!(request.body["settings"]["chatWidthMode"], "custom");
@@ -461,6 +475,29 @@ mod tests {
         assert_eq!(
             request.body["settings"]["backgroundWallpaperImages"],
             "https://example.com/a.webp"
+        );
+    }
+
+    #[test]
+    fn parser_drops_invalid_chat_line_hover_display_mode() {
+        let request = parse_cloud_sync_request(&json!({
+            "requestId": "req_cloud",
+            "endpoint": "https://example.com/sync",
+            "body": {
+                "action": "push",
+                "syncKey": "1234567890123456",
+                "settings": {
+                    "enableChatLineHover": true,
+                    "chatLineHoverDisplayMode": "box-shadow: none"
+                }
+            }
+        }))
+        .unwrap();
+        assert_eq!(request.body["settings"]["enableChatLineHover"], true);
+        assert!(
+            request.body["settings"]
+                .get("chatLineHoverDisplayMode")
+                .is_none()
         );
     }
 

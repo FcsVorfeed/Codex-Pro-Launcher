@@ -207,9 +207,9 @@ const expectedSections = [
     id: "chat-line-hover",
     modulePath: ["src", "inject", "systems", "chat-line-hover", "settings.js"],
     ownerSystem: "chat-line-hover",
-    settingKeys: ["enableChatLineHover", "expandChatLineHoverToLine"],
+    settingKeys: ["enableChatLineHover", "chatLineHoverDisplayMode"],
     fieldDependencies: {
-      expandChatLineHoverToLine: "enableChatLineHover",
+      chatLineHoverDisplayMode: "enableChatLineHover",
     },
   },
   {
@@ -1109,6 +1109,10 @@ assert(
   "settings-menu cloud sync must sanitize uiLanguage values",
 );
 assert(
+  cloudSyncSource.includes('new Set(["line", "full-line", "block"])') && cloudSyncSource.includes('Object.hasOwn(payload, "chatLineHoverDisplayMode")'),
+  "settings-menu cloud sync must sanitize chat line hover display mode values",
+);
+assert(
   cloudSyncSectionSource.includes("normalizePulledSettings") &&
     cloudSyncSectionSource.includes("normalizeLegacyPulledChatWidthPixels") &&
     cloudSyncSectionSource.includes('Object.hasOwn(pulledSettings, "chatWidthPixels")') &&
@@ -1119,6 +1123,10 @@ assert(
 assert(
   rustCloudSyncSource.includes('language == "zh-CN" || language == "en-US" || language == "ja-JP"') && rustCloudSyncSource.includes('"uiLanguage"'),
   "Rust native cloud sync must sanitize uiLanguage values",
+);
+assert(
+  rustCloudSyncSource.includes('mode == "line" || mode == "full-line" || mode == "block"') && rustCloudSyncSource.includes('"chatLineHoverDisplayMode"'),
+  "Rust native cloud sync must sanitize chat line hover display mode values",
 );
 assert(
   cloudSyncSource.includes('new Set(["hidden", "observer", "official"])') && cloudSyncSource.includes('Object.hasOwn(payload, "usagePanelTodayTokenSource")'),

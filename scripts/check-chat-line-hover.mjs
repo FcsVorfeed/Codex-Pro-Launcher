@@ -42,7 +42,12 @@ assertIncludes(runtimeSource, 'const systemName = "chat-line-hover"', "runtime m
 assertIncludes(runtimeSource, 'const lineId = "codex-pro-chat-line-hover"', "runtime must use one stable overlay id");
 assertIncludes(runtimeSource, "runtime.registerSystem(systemName", "runtime must register the system");
 assertIncludes(runtimeSource, 'enableSetting: "enableChatLineHover"', "runtime must be controlled by the settings switch");
-assertIncludes(runtimeSource, "expandChatLineHoverToLine === true", "runtime must read the full-row guide setting");
+assertIncludes(runtimeSource, 'const chatLineHoverDisplayModes = new Set(["line", "full-line", "block"])', "runtime must expose the supported display modes");
+assertIncludes(runtimeSource, "normalizeDisplayMode", "runtime must normalize the display mode");
+assertIncludes(runtimeSource, "settings.chatLineHoverDisplayMode", "runtime must read the display mode setting");
+assertIncludes(runtimeSource, "settings.expandChatLineHoverToLine === true", "runtime must preserve the legacy full-row guide setting");
+assertIncludes(runtimeSource, "getBlockHoverRect", "runtime must support rounded text-block frames");
+assertIncludes(runtimeSource, 'mode: "block"', "runtime must mark block overlay geometry with block mode");
 assertIncludes(runtimeSource, "window.requestAnimationFrame", "runtime must coalesce pointer movement with requestAnimationFrame");
 assertIncludes(runtimeSource, "document.caretRangeFromPoint", "runtime must use point-based text hit testing");
 assertIncludes(runtimeSource, "document.caretPositionFromPoint", "runtime must keep the standards fallback for point hit testing");
@@ -66,6 +71,7 @@ assertIncludes(runtimeSource, "pointer-events: none", "overlay must not capture 
 assertIncludes(runtimeSource, "opacity 140ms ease", "overlay must fade in and out instead of toggling display immediately");
 assertIncludes(runtimeSource, "left 70ms cubic-bezier", "overlay must smooth short horizontal moves between nearby lines without feeling laggy");
 assertIncludes(runtimeSource, "data-codex-pro-chat-line-hover-visible", "runtime must use a visibility state attribute for fade transitions");
+assertIncludes(runtimeSource, "data-codex-pro-chat-line-hover-mode", "runtime must expose display mode as a state attribute");
 assertNotIncludes(runtimeSource, "#${lineId}[hidden]", "runtime must not hide the line with display:none because that skips fade-out");
 assertIncludes(runtimeSource, "runtime.lifecycle.replaceController", "runtime must cleanly replace old controllers on reinjection");
 assertIncludes(runtimeSource, "document.getElementById(styleId)?.remove()", "runtime must remove its stylesheet on abort");
@@ -77,8 +83,11 @@ assertNotIncludes(runtimeSource, "range.selectNodeContents(block)", "runtime ful
 
 assertIncludes(settingsSource, 'id: "chat-line-hover"', "settings section must register chat-line-hover");
 assertIncludes(settingsSource, "enableChatLineHover", "settings section must expose the enable switch");
-assertIncludes(settingsSource, "expandChatLineHoverToLine", "settings section must expose the full-row guide switch");
-assertIncludes(settingsSource, 'expandChatLineHoverToLine: "enableChatLineHover"', "full-row guide switch must depend on the main hover switch");
+assertIncludes(settingsSource, "chatLineHoverDisplayMode", "settings section must expose the display mode selector");
+assertIncludes(settingsSource, '<option value="line">', "settings section must expose current-line mode");
+assertIncludes(settingsSource, '<option value="full-line">', "settings section must expose full-row line mode");
+assertIncludes(settingsSource, '<option value="block">', "settings section must expose rounded block mode");
+assertIncludes(settingsSource, 'chatLineHoverDisplayMode: "enableChatLineHover"', "display mode selector must depend on the main hover switch");
 assertIncludes(settingsSource, 'sourceSystem: "chat-line-hover"', "settings section must expose owner system metadata");
 
 assertIncludes(manifestSource, 'ownerSystem: "chat-line-hover"', "JS manifest must preload chat-line-hover settings");

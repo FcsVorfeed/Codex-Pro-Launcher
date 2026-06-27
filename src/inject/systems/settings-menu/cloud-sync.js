@@ -22,6 +22,7 @@
     "backgroundWallpaperRandom",
     "backgroundWallpaperSize",
     "collapseSidebarOnStartup",
+    "chatLineHoverDisplayMode",
     "chatWidthMode",
     "chatWidthPixels",
     "contextUsageDecimalPlaces",
@@ -67,6 +68,7 @@
     "usageRefreshSeconds",
   ];
   const syncableUiLanguages = new Set(["zh-CN", "en-US", "ja-JP"]);
+  const syncableChatLineHoverDisplayModes = new Set(["line", "full-line", "block"]);
   const syncableTodayTokenSources = new Set(["hidden", "observer", "official"]);
   const keyAcquisitionUrl = normalizeLocalConfigString(runtime.localConfig?.sync?.keyAcquisitionUrl);
   const syncLicenseMessageKeys = new Set([
@@ -301,6 +303,9 @@
     }
     if (Object.hasOwn(payload, "uiLanguage") && !syncableUiLanguages.has(payload.uiLanguage)) {
       delete payload.uiLanguage;
+    }
+    if (Object.hasOwn(payload, "chatLineHoverDisplayMode") && !syncableChatLineHoverDisplayModes.has(payload.chatLineHoverDisplayMode)) {
+      delete payload.chatLineHoverDisplayMode;
     }
     if (Object.hasOwn(payload, "usagePanelTodayTokenSource") && !syncableTodayTokenSources.has(payload.usagePanelTodayTokenSource)) {
       delete payload.usagePanelTodayTokenSource;

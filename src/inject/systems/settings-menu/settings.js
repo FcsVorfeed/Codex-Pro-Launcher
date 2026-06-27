@@ -15,6 +15,7 @@
   const defaultUsagePanelPingEndpoint = "https://status.openai.com/api/v2/status.json";
   const defaultChatWidthMode = "official";
   const defaultChatWidthPixels = 1100;
+  const defaultChatLineHoverDisplayMode = "block";
   const defaultConversationArchiveProfileName = "Default profile";
   const legacyDefaultConversationArchiveProfileName = "默认账号";
   const defaultBackgroundWallpaperImages = normalizeLocalConfigStringList(localAppearanceConfig.defaultBackgroundWallpaperImages).join("\n");
@@ -30,6 +31,7 @@
   };
   const supportedUiLanguages = new Set(["zh-CN", "en-US", "ja-JP"]);
   const conversationArchiveSidebarPanelModes = new Set(["click", "hover"]);
+  const chatLineHoverDisplayModes = new Set(["line", "full-line", "block"]);
   const usagePanelTodayTokenSources = new Set(["hidden", "observer", "official"]);
   const petEventSoundStateIds = Object.freeze([
     "idle",
@@ -81,6 +83,7 @@
     contextUsageDecimalPlaces: 0,
     contextUsageRingWarningColor: "#f59e0b",
     contextUsageRingWarningThreshold: 60,
+    chatLineHoverDisplayMode: defaultChatLineHoverDisplayMode,
     chatWidthMode: defaultChatWidthMode,
     chatWidthPixels: defaultChatWidthPixels,
     diffHoverFileOpenMode: "review",
@@ -626,6 +629,21 @@
     return value === false ? false : defaultSettings.enableChatWidthResizer;
   }
 
+  function normalizeChatLineHoverDisplayMode(value, source) {
+    // 这一段限制聊天悬浮显示模式，并把旧版“整行显示”布尔值迁移成等价模式。
+    // Constrain chat-hover display mode and migrate the older full-row boolean into an equivalent mode.
+    const sourceObject = getSourceObject(source);
+    const hasExplicitMode = Object.hasOwn(sourceObject, "chatLineHoverDisplayMode");
+    const mode = String(hasExplicitMode ? value : "").trim();
+    if (chatLineHoverDisplayModes.has(mode)) return mode;
+    if (!hasExplicitMode && Object.hasOwn(sourceObject, "expandChatLineHoverToLine")) {
+      return normalizeEnabledSetting(sourceObject.expandChatLineHoverToLine, defaultSettings.expandChatLineHoverToLine)
+        ? "full-line"
+        : "line";
+    }
+    return defaultSettings.chatLineHoverDisplayMode;
+  }
+
   function normalizeHiddenFileTreePatterns(value) {
     // 这一段把右侧文件树过滤规则规整成换行列表，避免空规则和重复规则造成额外扫描。
     // Normalize file-tree filter rules into a newline list so empty and duplicate rules do not add extra scanning.
@@ -869,6 +887,7 @@
     { key: "contextUsageRingWarningThreshold", normalize: normalizeContextUsageRingWarningThreshold },
     { key: "chatWidthMode", normalize: normalizeChatWidthMode },
     { key: "chatWidthPixels", normalize: normalizeChatWidthPixels },
+    { key: "chatLineHoverDisplayMode", normalize: normalizeChatLineHoverDisplayMode },
     { key: "diffHoverFileOpenMode", normalize: normalizeDiffHoverFileOpenMode },
     { key: "diffHoverPreviewFontSize", normalize: normalizeDiffHoverPreviewFontSize },
     {
