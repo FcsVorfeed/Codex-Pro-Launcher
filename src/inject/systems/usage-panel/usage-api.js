@@ -99,6 +99,7 @@
       return {
         available: availableCount != null,
         availableCount,
+        expiresAtList,
         nearestExpiresAt: expiresAtList[0] || "",
       };
     });

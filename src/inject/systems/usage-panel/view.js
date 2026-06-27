@@ -1206,6 +1206,8 @@
       const valueElement = rowElement.querySelector("[data-codex-pro-usage-value]");
       if (labelElement) labelElement.textContent = row.label;
       if (valueElement) valueElement.textContent = row.value;
+      if (row.title) rowElement.title = row.title;
+      else rowElement.removeAttribute("title");
       rowsContainer.appendChild(rowElement);
     }
   }

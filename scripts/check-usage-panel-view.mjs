@@ -69,6 +69,11 @@ assert.match(
   /requestJson\(resetCreditsEndpoint,\s*\{\s*method:\s*"GET",\s*signal\s*\}\)/u,
   "reset credits API must explicitly use GET",
 );
+assert.match(
+  apiSource,
+  /expiresAtList,/u,
+  "reset credits API must expose the sanitized expiry list for hover details",
+);
 assert.doesNotMatch(
   apiSource,
   /rate-limit-reset-credits\/consume/u,
@@ -83,6 +88,16 @@ assert.match(
   formatSource,
   /function formatResetCreditExpiry[\s\S]*formatUsageDate\(date,\s*"--"\)/u,
   "reset credit expiry must reuse the quota-window date formatter",
+);
+assert.match(
+  formatSource,
+  /function formatResetCreditTooltip[\s\S]*join\("\\n"\)/u,
+  "reset credit hover title must format every expiry as multiline text",
+);
+assert.match(
+  formatSource,
+  /title:\s*formatResetCreditTooltip\(resetCredits\)/u,
+  "reset credits row must carry hover title details",
 );
 assert.doesNotMatch(
   formatSource,
@@ -103,6 +118,16 @@ assert.match(
   source,
   /onPanelVisible/u,
   "environment panel binding must notify when the panel becomes visible",
+);
+assert.match(
+  source,
+  /rowElement\.title\s*=\s*row\.title/u,
+  "usage rows must apply row title text for native hover details",
+);
+assert.match(
+  source,
+  /removeAttribute\("title"\)/u,
+  "usage rows must remove stale native title text when details disappear",
 );
 
 console.log("usage panel view checks passed");

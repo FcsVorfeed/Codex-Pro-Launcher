@@ -127,6 +127,31 @@
     return `${countText} / ${formatResetCreditExpiry(resetCredits.nearestExpiresAt)}`;
   }
 
+  function formatResetCreditDetailExpiry(value) {
+    // 这一段给原生 title 使用完整到期时间，和主行短日期区分开。
+    // Format the full expiry time for the native title, separate from the compact row date.
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    return new Intl.DateTimeFormat(i18n.resolveLocale(), {
+      day: "numeric",
+      hour: "numeric",
+      hour12: true,
+      minute: "2-digit",
+      month: "long",
+      year: "numeric",
+    }).format(date);
+  }
+
+  function formatResetCreditTooltip(resetCredits) {
+    // 这一段只把清洗后的到期时间列表转成多行 title，不把原始接口响应写入 DOM。
+    // Convert only the sanitized expiry list into a multiline title without exposing raw API payloads.
+    if (!resetCredits?.available || !Array.isArray(resetCredits.expiresAtList)) return "";
+    return resetCredits.expiresAtList
+      .map(formatResetCreditDetailExpiry)
+      .filter(Boolean)
+      .join("\n");
+  }
+
   function formatInputTokenBreakdown(cachedInputTokens, inputTokens, options = {}) {
     // 这一段把输入展示成实际输入，按设置决定是否追加包含缓存命中的总输入。
     // Show actual input and append cache-inclusive total input only when the setting asks for it.
@@ -206,6 +231,7 @@
       {
         key: "reset-credits",
         label: i18n.t("usage.resetCredits.label"),
+        title: formatResetCreditTooltip(resetCredits),
         value: formatResetCredits(resetCredits),
       },
     ];
