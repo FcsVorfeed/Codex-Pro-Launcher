@@ -1,7 +1,13 @@
 use std::net::TcpListener;
 
-/// 这一段定义 Codex-Pro launcher 的单实例守护端口。
-/// Defines the single-instance guard port for the Codex-Pro launcher.
+/// 这一段定义 Windows 下 Codex-Pro launcher 的单实例 Mutex 名称。
+/// Defines the Windows single-instance mutex name for the Codex-Pro launcher.
+#[cfg(windows)]
+const LAUNCHER_GUARD_MUTEX_NAME: &str = r"Local\CodexProLauncherSingleInstance";
+
+/// 这一段定义非 Windows fallback 的单实例守护端口。
+/// Defines the non-Windows fallback single-instance guard port.
+#[cfg(not(windows))]
 pub const LAUNCHER_GUARD_PORT: u16 = 57324;
 
 /// 这一段描述最终 CDP 调试端口的选择结果。
@@ -19,8 +25,41 @@ pub struct DebugPortSelection {
     pub reason: &'static str,
 }
 
-/// 这一段持有本地端口监听器，生命周期内阻止第二个 launcher 同时运行。
-/// Holds a loopback listener so a second launcher cannot run concurrently.
+/// 这一段持有 launcher 单实例 guard，生命周期内阻止第二个 launcher 同时启动。
+/// Holds the launcher single-instance guard so a second launcher cannot start concurrently.
+#[cfg(windows)]
+#[derive(Debug)]
+pub struct LauncherGuard {
+    /// 这一段保存命名 Mutex 句柄，保持内核对象存活。
+    /// Keep the named mutex handle alive so the kernel object stays present.
+    handle: windows::Win32::Foundation::HANDLE,
+}
+
+/// 这一段在 guard 离开作用域时释放 Windows 句柄。
+/// Releases the Windows handle when the guard leaves scope.
+#[cfg(windows)]
+impl Drop for LauncherGuard {
+    fn drop(&mut self) {
+        // 这一段只关闭本进程持有的句柄，不影响其它系统状态。
+        // Close only this process handle without touching external system state.
+        unsafe {
+            let _ = windows::Win32::Foundation::CloseHandle(self.handle);
+        }
+    }
+}
+
+/// 这一段持有非 Windows fallback 的 launcher 单实例 guard。
+/// Holds the non-Windows fallback launcher single-instance guard.
+#[cfg(not(windows))]
+#[derive(Debug)]
+pub struct LauncherGuard {
+    /// 这一段复用本地端口监听器作为非 Windows fallback。
+    /// Reuse a loopback listener as the non-Windows fallback.
+    _loopback_guard: LoopbackPortGuard,
+}
+
+/// 这一段持有本地端口监听器，生命周期内阻止第二个 loopback guard 同时运行。
+/// Holds a loopback listener so a second loopback guard cannot run concurrently.
 #[derive(Debug)]
 pub struct LoopbackPortGuard {
     /// 这一段必须保留监听器所有权，否则端口会被立即释放。
@@ -30,10 +69,65 @@ pub struct LoopbackPortGuard {
 
 /// 这一段尝试获取默认 launcher 单实例 guard。
 /// Try to acquire the default launcher single-instance guard.
-pub fn try_acquire_launcher_guard() -> std::io::Result<Option<LoopbackPortGuard>> {
-    // 这一段使用独立端口，避免和 Codex CDP 端口及 Codex++ guard 端口冲突。
-    // Use a dedicated port so it does not conflict with Codex CDP or Codex++ guard ports.
-    try_acquire_loopback_guard(LAUNCHER_GUARD_PORT)
+pub fn try_acquire_launcher_guard() -> std::io::Result<Option<LauncherGuard>> {
+    // 这一段优先使用 Windows 命名 Mutex，避免固定 TCP guard 端口撞上系统动态端口池。
+    // Prefer a Windows named mutex so the fixed TCP guard port cannot collide with the dynamic port pool.
+    #[cfg(windows)]
+    {
+        return try_acquire_windows_mutex_guard_by_name(LAUNCHER_GUARD_MUTEX_NAME);
+    }
+
+    // 这一段在非 Windows 平台继续使用本地端口 guard 作为兼容 fallback。
+    // Keep the loopback port guard as the compatibility fallback on non-Windows platforms.
+    #[cfg(not(windows))]
+    {
+        try_acquire_loopback_guard(LAUNCHER_GUARD_PORT)
+            .map(|guard| guard.map(|_loopback_guard| LauncherGuard { _loopback_guard }))
+    }
+}
+
+/// 这一段尝试获取指定名称的 Windows Mutex guard。
+/// Try to acquire a Windows mutex guard by name.
+#[cfg(windows)]
+fn try_acquire_windows_mutex_guard_by_name(
+    mutex_name: &str,
+) -> std::io::Result<Option<LauncherGuard>> {
+    use windows::Win32::Foundation::{CloseHandle, WIN32_ERROR};
+    use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError, SetLastError};
+    use windows::Win32::System::Threading::CreateMutexW;
+    use windows::core::PCWSTR;
+
+    // 这一段生成 Win32 API 需要的 UTF-16 空结尾名称。
+    // Build the null-terminated UTF-16 name required by the Win32 API.
+    let mutex_name = wide_null(mutex_name);
+
+    // 这一段清空 last-error 后创建或打开命名 Mutex，避免读取到调用前的旧错误。
+    // Clear last-error before creating/opening the named mutex so stale errors cannot be misread.
+    unsafe {
+        SetLastError(WIN32_ERROR(0));
+    }
+    let handle = unsafe { CreateMutexW(None, false, PCWSTR(mutex_name.as_ptr())) }
+        .map_err(|_| std::io::Error::last_os_error())?;
+
+    // 这一段把已存在的 Mutex 视为已有 launcher 实例，保持现有快速置前路径。
+    // Treat an existing mutex as an existing launcher instance, preserving the fast foreground path.
+    if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+        unsafe {
+            let _ = CloseHandle(handle);
+        }
+        return Ok(None);
+    }
+
+    Ok(Some(LauncherGuard { handle }))
+}
+
+/// 这一段把字符串转换成 UTF-16 空结尾数组。
+/// Convert a string into a null-terminated UTF-16 buffer.
+#[cfg(windows)]
+fn wide_null(value: &str) -> Vec<u16> {
+    // 这一段只做编码转换，不读取环境或用户数据。
+    // Perform only encoding conversion without reading environment or user data.
+    value.encode_utf16().chain([0]).collect()
 }
 
 /// 这一段尝试获取指定 loopback 端口 guard。
@@ -200,6 +294,26 @@ mod tests {
 
         let _guard = try_acquire_loopback_guard(port).unwrap().unwrap();
         let second = try_acquire_loopback_guard(port).unwrap();
+
+        assert!(second.is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_mutex_guard_blocks_second_guard_with_same_name() {
+        let mutex_name = format!(
+            r"Local\CodexProLauncherTest-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+
+        let _guard = try_acquire_windows_mutex_guard_by_name(&mutex_name)
+            .unwrap()
+            .unwrap();
+        let second = try_acquire_windows_mutex_guard_by_name(&mutex_name).unwrap();
 
         assert!(second.is_none());
     }
