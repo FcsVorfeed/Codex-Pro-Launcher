@@ -17,6 +17,7 @@ const mouseGesturesPath = path.join(rootDir, "src", "launcher", "native-bridge",
 const todayTokenUsagePath = path.join(rootDir, "src", "launcher", "native-bridge", "handlers", "today-token-usage.mjs");
 const petEventSoundPath = path.join(rootDir, "src", "launcher", "native-bridge", "handlers", "pet-event-sound.mjs");
 const codexSqliteLogBlockerPath = path.join(rootDir, "src", "launcher", "native-bridge", "handlers", "codex-sqlite-log-blocker.mjs");
+const conversationArchiveHandlerPath = path.join(rootDir, "src", "launcher", "native-bridge", "handlers", "conversation-archive.mjs");
 const packagePath = path.join(rootDir, "package.json");
 const buildLauncherScriptPath = path.join(rootDir, "scripts", "build-launcher-exe.ps1");
 const buildReleaseInteractiveScriptPath = path.join(rootDir, "scripts", "build-release-interactive.ps1");
@@ -97,6 +98,7 @@ await Promise.all([
   assertFileExists(todayTokenUsagePath),
   assertFileExists(petEventSoundPath),
   assertFileExists(codexSqliteLogBlockerPath),
+  assertFileExists(conversationArchiveHandlerPath),
   assertFileExists(buildLauncherScriptPath),
   assertFileExists(buildReleaseInteractiveScriptPath),
   assertFileExists(buildRustScriptPath),
@@ -129,6 +131,7 @@ const [
   mouseGesturesSource,
   petEventSoundSource,
   codexSqliteLogBlockerSource,
+  conversationArchiveHandlerSource,
   packageSource,
   buildLauncherScriptSource,
   buildReleaseInteractiveScriptSource,
@@ -160,6 +163,7 @@ const [
   readFile(mouseGesturesPath, "utf8"),
   readFile(petEventSoundPath, "utf8"),
   readFile(codexSqliteLogBlockerPath, "utf8"),
+  readFile(conversationArchiveHandlerPath, "utf8"),
   readFile(packagePath, "utf8"),
   readFile(buildLauncherScriptPath, "utf8"),
   readFile(buildReleaseInteractiveScriptPath, "utf8"),
@@ -184,8 +188,8 @@ const conversationArchiveSource = (await Promise.all(
   rustConversationArchivePaths.map((filePath) => readFile(filePath, "utf8")),
 )).join("\n");
 
-assertIncludes(mainSource, "const nativeBridgeProtocolVersion = 72", "native bridge protocol version bump");
-assertIncludes(rustProtocolSource, "NATIVE_BRIDGE_PROTOCOL_VERSION: u32 = 72", "Rust native bridge protocol version bump");
+assertIncludes(mainSource, "const nativeBridgeProtocolVersion = 74", "native bridge protocol version bump");
+assertIncludes(rustProtocolSource, "NATIVE_BRIDGE_PROTOCOL_VERSION: u32 = 74", "Rust native bridge protocol version bump");
 assertIncludes(mainSource, "protocolVersion === nativeBridgeProtocolVersion", "native bridge reusable worker version gate");
 assertIncludes(mainSource, "startPetEventSoundOverlayTargetWatcher", "native bridge worker overlay watcher import");
 assertIncludes(mainSource, "disabledSystems", "native bridge worker preserves disabled system list");
@@ -299,6 +303,11 @@ assertIncludes(codexSqliteLogBlockerSource, "export function parseCodexSqliteLog
 assertIncludes(codexSqliteLogBlockerSource, "export async function runCodexSqliteLogBlockerRequest", "Codex SQLite log blocker runner export");
 assertIncludes(codexSqliteLogBlockerSource, "logs_2.sqlite", "Codex SQLite log blocker targets the official log database");
 assertIncludes(codexSqliteLogBlockerSource, "RAISE(IGNORE)", "Codex SQLite log blocker installs the trigger workaround");
+assertIncludes(conversationArchiveHandlerSource, "const conversationArchiveMarkdownFormatVersion = 17", "legacy conversation archive reasoning-summary removal re-export version");
+assertIncludes(conversationArchiveHandlerSource, "stripConversationArchiveRequestLeadingSpacer", "legacy conversation archive request-wrapper spacer sanitizer");
+assertIncludes(conversationArchiveHandlerSource, 'messages.join("\\n\\n---\\n\\n")', "legacy conversation archive intentional process-message divider");
+assertNotIncludes(conversationArchiveHandlerSource, "serializeConversationArchiveReasoningSummary", "legacy conversation archive reasoning-summary body export");
+assertNotIncludes(conversationArchiveHandlerSource, "stripConversationArchiveReasoningSummarySpacers", "legacy conversation archive obsolete reasoning-summary sanitizer");
 assertIncludes(rustPetSyncSource, "pub fn parse_pet_sync_request", "Rust pet-sync request parser export");
 assertIncludes(rustPetSyncSource, "pub async fn run_pet_sync_request", "Rust pet-sync runner export");
 assertIncludes(rustPetSyncSource, "fn push_body_matches_legacy_pet_sync_contract", "Rust pet-sync upload contract test");
@@ -310,15 +319,16 @@ for (const [needle, label] of [
   ["thread_source", "Rust conversation archive user-thread source filter"],
   ["fn sanitize_text_block", "Rust conversation archive synthetic text sanitizer"],
   ["strip_memory_citations", "Rust conversation archive memory citation sanitizer"],
-  ["pub const MARKDOWN_FORMAT_VERSION: u64 = 15", "Rust conversation archive processed-duration markdown re-export version"],
+  ["pub const MARKDOWN_FORMAT_VERSION: u64 = 17", "Rust conversation archive reasoning-summary removal re-export version"],
   ["struct ProcessingGroup", "Rust conversation archive processed group"],
   ['payload.get("phase").and_then(Value::as_str) == Some("commentary")', "Rust conversation archive commentary processing export"],
   ["tool_summary_label", "Rust conversation archive tool summary export"],
   ['lines.push(body);', "Rust conversation archive repeated-speaker natural spacing"],
   ['lines.push("---".to_string());', "Rust conversation archive role block leading divider"],
   ['lines.push(format!("### {speaker}"));', "Rust conversation archive role heading body spacing"],
-  ["serialize_reasoning_summary", "Rust conversation archive reasoning summary exporter"],
+  ["strip_one_leading_codex_empty_html_spacer", "Rust conversation archive request-wrapper spacer sanitizer"],
   ["serialize_processing_group", "Rust conversation archive processed attachment serializer"],
+  ['messages.join("\\n\\n---\\n\\n")', "Rust conversation archive intentional process-message divider"],
   ["thinking_link_name", "Rust conversation archive per-reasoning attachment path"],
   ["thread_archive_path", "Rust conversation archive grouped path builder"],
   ['home.join("sqlite").join("state_5.sqlite")', "Rust conversation archive current Codex sqlite layout"],
@@ -378,6 +388,8 @@ for (const [needle, label] of [
 ]) {
   assertIncludes(conversationArchiveSource, needle, label);
 }
+assertNotIncludes(conversationArchiveSource, "serialize_reasoning_summary", "Rust conversation archive reasoning-summary body export");
+assertNotIncludes(conversationArchiveSource, "strip_trailing_codex_empty_html_spacers", "Rust conversation archive obsolete reasoning-summary sanitizer");
 assertNotIncludes(conversationArchiveSource, "readConversationArchiveGitProjectIdentity", "Rust conversation archive must not infer projects from live git");
 assertNotIncludes(conversationArchiveSource, "identity: `cwd:${cwdKey}`", "Rust conversation archive must not infer projects from raw cwd");
 assertNotIncludes(conversationArchiveSource, "cleanLegacyConversationArchiveMarkdown", "Rust conversation archive view-time markdown sanitizer");

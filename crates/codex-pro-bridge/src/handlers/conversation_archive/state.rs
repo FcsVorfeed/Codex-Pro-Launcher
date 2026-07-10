@@ -12,7 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub const INDEX_VERSION: u64 = 3;
 /// 这一段定义 Markdown 导出格式版本。
 /// Markdown export format version.
-pub const MARKDOWN_FORMAT_VERSION: u64 = 15;
+pub const MARKDOWN_FORMAT_VERSION: u64 = 17;
 /// 这一段定义活跃会话稳定窗口。
 /// Active-thread stability window.
 pub const STABLE_DELAY_MS: i64 = 90_000;

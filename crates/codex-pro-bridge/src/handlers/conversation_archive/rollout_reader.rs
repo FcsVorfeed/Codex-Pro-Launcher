@@ -83,16 +83,10 @@ pub fn export_thread_archive_from_text(
                         last_visible_event_timestamp_ms,
                         previous_event_timestamp_ms,
                     );
-                    let summary = serialize_reasoning_summary(payload.get("summary"));
-                    if !summary.is_empty() {
-                        append_processing_message(
-                            &mut processing_group,
-                            summary,
-                            event_timestamp_ms,
-                        );
-                    } else {
-                        set_processing_timestamp(&mut processing_group, event_timestamp_ms);
-                    }
+
+                    // 这一段只用 reasoning 事件维持“已处理”耗时，不导出新版 Codex 的内部英文摘要。
+                    // Use reasoning events only for processed-duration timing without exporting newer Codex internal summaries.
+                    set_processing_timestamp(&mut processing_group, event_timestamp_ms);
                 }
             }
             "function_call" | "custom_tool_call" | "web_search_call" | "tool_search_call" => {
@@ -362,8 +356,8 @@ fn format_processing_duration(duration_ms: i64) -> String {
 /// 这一段序列化处理过程组。
 /// Serialize a processed group.
 fn serialize_processing_group(group: &ProcessingGroup) -> String {
-    // 这一段只保留 commentary/reasoning 摘要和工具调用数量，不导出工具参数或输出。
-    // Keep only commentary/reasoning summaries and tool counts, excluding tool arguments and outputs.
+    // 这一段只保留 commentary 过程消息和工具调用数量，不导出 reasoning 摘要、工具参数或输出。
+    // Keep only commentary process messages and tool counts, excluding reasoning summaries, tool arguments, and outputs.
     let mut blocks = Vec::new();
     let messages = group
         .messages
@@ -663,29 +657,19 @@ fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
     era * 146_097 + day_of_era - 719_468
 }
 
-/// 这一段序列化 reasoning summary。
-/// Serialize reasoning summary.
-fn serialize_reasoning_summary(value: Option<&Value>) -> String {
-    // 这一段只导出明文 summary 字段，忽略 encrypted_content。
-    // Export only plaintext summary fields and ignore encrypted_content.
-    let Some(items) = value.and_then(Value::as_array) else {
-        return String::new();
+/// 这一段判断一整行是否只是空 HTML 注释。
+/// Return whether a complete line is only an empty HTML comment.
+fn is_codex_empty_html_spacer_line(value: &str) -> bool {
+    // 这一段允许注释内部只有空白，拒绝删除任何带内容的 HTML 注释。
+    // Allow whitespace-only comment bodies while rejecting every non-empty HTML comment.
+    let trimmed = value.trim();
+    let Some(comment_body) = trimmed
+        .strip_prefix("<!--")
+        .and_then(|rest| rest.strip_suffix("-->"))
+    else {
+        return false;
     };
-    items
-        .iter()
-        .filter_map(|item| {
-            if let Some(text) = item.as_str() {
-                return Some(sanitize_text_block(text));
-            }
-            item.get("text")
-                .or_else(|| item.get("summary"))
-                .or_else(|| item.get("content"))
-                .and_then(Value::as_str)
-                .map(sanitize_text_block)
-        })
-        .filter(|block| !block.trim().is_empty())
-        .collect::<Vec<_>>()
-        .join("\n\n")
+    comment_body.trim().is_empty()
 }
 
 /// 这一段生成工具摘要标签。
@@ -730,16 +714,44 @@ fn sanitize_text_block(value: &str) -> String {
     {
         return String::new();
     }
-    trimmed
-        .strip_prefix("# Files mentioned by the user:")
-        .and_then(|rest| {
-            rest.split_once("## My request for Codex:")
-                .map(|(_, body)| body)
-        })
-        .or_else(|| trimmed.strip_prefix("## My request for Codex:"))
-        .unwrap_or(trimmed)
-        .trim()
-        .to_string()
+    // 这一段记录是否剥除了 Codex 请求包装，只在该边界清理一个自动前导间隔标记。
+    // Track whether a Codex request wrapper was removed so only that boundary loses one automatic leading spacer.
+    let (body, stripped_request_wrapper) =
+        if let Some(rest) = trimmed.strip_prefix("# Files mentioned by the user:") {
+            if let Some((_, body)) = rest.split_once("## My request for Codex:") {
+                (body, true)
+            } else {
+                (trimmed, false)
+            }
+        } else if let Some(body) = trimmed.strip_prefix("## My request for Codex:") {
+            (body, true)
+        } else {
+            (trimmed, false)
+        };
+    let body = body.trim();
+    if stripped_request_wrapper {
+        strip_one_leading_codex_empty_html_spacer(body)
+            .trim()
+            .to_string()
+    } else {
+        body.to_string()
+    }
+}
+
+/// 这一段移除 Codex 请求包装后紧邻的一个空 HTML 间隔行。
+/// Remove one empty-HTML spacer line immediately after a Codex request wrapper.
+fn strip_one_leading_codex_empty_html_spacer(value: &str) -> &str {
+    // 这一段最多删除第一行一次，用户随后主动输入的同形文本仍会保留。
+    // Remove at most the first line once so a matching marker intentionally entered afterward remains.
+    let text = value.trim();
+    if let Some((first_line, rest)) = text.split_once('\n') {
+        if is_codex_empty_html_spacer_line(first_line) {
+            return rest.trim();
+        }
+    } else if is_codex_empty_html_spacer_line(text) {
+        return "";
+    }
+    text
 }
 
 /// 这一段生成思考附件链接名。
@@ -863,5 +875,89 @@ mod tests {
 
         assert_eq!(exported.message_count, 1);
         assert!(exported.markdown.contains("[已处理 4s](<thinking-001-"));
+    }
+
+    /// 这一段确认 reasoning 摘要不进入附件，但仍参与“已处理”耗时。
+    /// Confirm reasoning summaries stay out of attachments while still contributing to processed duration.
+    #[test]
+    fn reasoning_summary_is_hidden_but_keeps_processing_duration() {
+        let jsonl = r#"{"type":"response_item","timestamp":"2026-07-10T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"你好"}]}}
+{"type":"response_item","timestamp":"2026-07-10T00:00:01.000Z","payload":{"type":"reasoning","summary":[{"type":"summary_text","text":"**Planning archive export**\n\n<!-- -->"}]}}
+{"type":"response_item","timestamp":"2026-07-10T00:00:02.000Z","payload":{"type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"正在处理"}]}}
+{"type":"response_item","timestamp":"2026-07-10T00:00:03.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"完成"}]}}"#;
+        let exported = export_thread_archive_from_text(
+            &row(),
+            "devices/device_a/profiles/profile_a/conversations/conversation_default/threads/2026/07/thread_123/index.md",
+            jsonl,
+        )
+        .expect("archive should export");
+
+        assert_eq!(exported.related_files.len(), 1);
+        assert!(exported.markdown.contains("[已处理 3s](<thinking-001-"));
+        assert!(exported.related_files[0].markdown.contains("正在处理"));
+        assert!(
+            !exported.related_files[0]
+                .markdown
+                .contains("Planning archive export")
+        );
+        assert!(!exported.related_files[0].markdown.contains("<!-- -->"));
+    }
+
+    /// 这一段确认只有 reasoning 摘要时不会生成空的“已处理”附件。
+    /// Confirm a reasoning-only summary does not create an empty processed attachment.
+    #[test]
+    fn reasoning_only_summary_does_not_create_attachment() {
+        let jsonl = r#"{"type":"response_item","timestamp":"2026-07-10T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"你好"}]}}
+{"type":"response_item","timestamp":"2026-07-10T00:00:01.000Z","payload":{"type":"reasoning","summary":[{"type":"summary_text","text":"**Planning archive export**\n\n<!-- -->"}]}}
+{"type":"response_item","timestamp":"2026-07-10T00:00:02.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"完成"}]}}"#;
+        let exported = export_thread_archive_from_text(
+            &row(),
+            "devices/device_a/profiles/profile_a/conversations/conversation_default/threads/2026/07/thread_123/index.md",
+            jsonl,
+        )
+        .expect("archive should export");
+
+        assert!(exported.related_files.is_empty());
+        assert!(!exported.markdown.contains("已处理"));
+    }
+
+    /// 这一段确认用户要求保留的过程消息分隔线没有被本次清理改变。
+    /// Confirm this cleanup preserves the intentional process-message divider requested by the user.
+    #[test]
+    fn commentary_messages_keep_intentional_markdown_divider() {
+        let jsonl = r#"{"type":"response_item","timestamp":"2026-07-10T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"你好"}]}}
+{"type":"response_item","timestamp":"2026-07-10T00:00:01.000Z","payload":{"type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"第一条过程消息"}]}}
+{"type":"response_item","timestamp":"2026-07-10T00:00:02.000Z","payload":{"type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"第二条过程消息"}]}}
+{"type":"response_item","timestamp":"2026-07-10T00:00:03.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"完成"}]}}"#;
+        let exported = export_thread_archive_from_text(
+            &row(),
+            "devices/device_a/profiles/profile_a/conversations/conversation_default/threads/2026/07/thread_123/index.md",
+            jsonl,
+        )
+        .expect("archive should export");
+
+        assert!(
+            exported.related_files[0]
+                .markdown
+                .contains("第一条过程消息\n\n---\n\n第二条过程消息")
+        );
+    }
+
+    /// 这一段确认请求包装只移除自动前导标记，保留用户正文中的同形文本。
+    /// Confirm request wrappers remove only the automatic leading marker and preserve matching user text.
+    #[test]
+    fn request_wrapper_strips_only_one_leading_codex_empty_html_spacer() {
+        let sanitized = sanitize_text_block(
+            "# Files mentioned by the user:\n\n## example.png\n\n## My request for Codex:\n<!-- -->\n\n请保留内联 `<!-- -->`",
+        );
+        assert_eq!(sanitized, "请保留内联 `<!-- -->`");
+
+        let repeated =
+            sanitize_text_block("## My request for Codex:\n<!-- -->\n\n<!-- -->\n用户主动保留");
+        assert_eq!(repeated, "<!-- -->\n用户主动保留");
+        assert_eq!(
+            sanitize_text_block("普通正文\n\n<!-- -->"),
+            "普通正文\n\n<!-- -->"
+        );
     }
 }

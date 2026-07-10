@@ -17,7 +17,7 @@ import {
 import { rootDir } from "../../paths.mjs";
 
 const conversationArchiveIndexVersion = 2;
-const conversationArchiveMarkdownFormatVersion = 14;
+const conversationArchiveMarkdownFormatVersion = 17;
 const conversationArchivePackageFormatVersion = 1;
 const conversationArchivePackageKind = "thread-bundle";
 const conversationArchiveMaxBodyBytes = 8 * 1024 * 1024;
@@ -1159,27 +1159,6 @@ function getConversationArchiveProcessingLabel(previousTimestampMs, currentTimes
   return duration ? `已处理 ${duration}` : "已处理";
 }
 
-function serializeConversationArchiveReasoningSummary(summary) {
-  // 这一段导出 response_item.reasoning.summary 明文摘要，供思考附件保留可读部分。
-  // Export plaintext response_item.reasoning.summary so reasoning attachments keep readable parts.
-  if (!Array.isArray(summary)) return "";
-  const blocks = [];
-  for (const item of summary) {
-    if (typeof item === "string") {
-      const text = sanitizeConversationArchiveTextBlock(item);
-      if (text) blocks.push(text);
-      continue;
-    }
-    if (!item || typeof item !== "object") continue;
-
-    // 这一段兼容不同 summary item 字段名，并沿用正文文本清理规则。
-    // Support several summary item field names while reusing the normal body sanitizer.
-    const text = sanitizeConversationArchiveTextBlock(item.text || item.summary || item.content || "");
-    if (text) blocks.push(text);
-  }
-  return blocks.filter((block) => block.trim()).join("\n\n").trim();
-}
-
 function createConversationArchiveProcessingGroup(startedAfterTimestampMs) {
   // 这一段创建一组 Codex 折叠“已处理”事件，后续会合并成一个附件和一个主文档链接。
   // Create one Codex collapsed "processed" event group that becomes one attachment and one main-document link.
@@ -1682,6 +1661,23 @@ function stripConversationArchiveMemoryCitationBlocks(text) {
     .trim();
 }
 
+function isConversationArchiveEmptyHtmlSpacerLine(value) {
+  // 这一段只接受注释内部为空白的完整行，避免误删带内容的 HTML 注释。
+  // Accept only complete HTML-comment lines with whitespace-only bodies so meaningful comments remain intact.
+  const line = String(value || "").trim();
+  return /^<!--[ \t]*-->$/u.test(line);
+}
+
+function stripConversationArchiveRequestLeadingSpacer(value) {
+  // 这一段最多删除请求包装后的第一行一次，用户随后主动写出的同形文本仍会保留。
+  // Remove at most the first line after a request wrapper so a matching marker intentionally entered afterward remains.
+  const text = String(value || "").trim();
+  const firstLineEnd = text.indexOf("\n");
+  const firstLine = firstLineEnd >= 0 ? text.slice(0, firstLineEnd) : text;
+  if (!isConversationArchiveEmptyHtmlSpacerLine(firstLine)) return text;
+  return firstLineEnd >= 0 ? text.slice(firstLineEnd + 1).trim() : "";
+}
+
 function sanitizeConversationArchiveTextBlock(value) {
   // 这一段移除 Codex 注入给模型看的上下文和附件包装，只保留用户真正输入的文字。
   // Remove model-facing Codex context and attachment wrappers, keeping only user-authored text.
@@ -1693,11 +1689,17 @@ function sanitizeConversationArchiveTextBlock(value) {
 
   // 这一段把截图消息前置的本机临时路径说明剥掉，避免 Markdown 泄露临时文件路径。
   // Strip screenshot preambles with local temp paths so Markdown does not leak temporary file paths.
+  const attachmentRequestPattern = /^# Files mentioned by the user:[\s\S]*?## My request for Codex:\s*/u;
+  const directRequestPattern = /^## My request for Codex:\s*/u;
+  const strippedRequestWrapper = attachmentRequestPattern.test(text) || directRequestPattern.test(text);
   const withoutAttachmentPreamble = text
-    .replace(/^# Files mentioned by the user:[\s\S]*?## My request for Codex:\s*/u, "")
-    .replace(/^## My request for Codex:\s*/u, "")
+    .replace(attachmentRequestPattern, "")
+    .replace(directRequestPattern, "")
     .trim();
-  return stripConversationArchiveMemoryCitationBlocks(withoutAttachmentPreamble);
+  const withoutMemoryCitations = stripConversationArchiveMemoryCitationBlocks(withoutAttachmentPreamble);
+  return strippedRequestWrapper
+    ? stripConversationArchiveRequestLeadingSpacer(withoutMemoryCitations)
+    : withoutMemoryCitations;
 }
 
 function serializeConversationArchiveContent(content) {
@@ -1896,9 +1898,10 @@ async function exportConversationArchiveMarkdown(row, identity, displayNames) {
 
     if (payload.type === "reasoning" && relatedFiles.length < conversationArchiveMaxThinkingFilesPerThread) {
       const processingGroup = ensurePendingProcessingGroup();
-      const summary = serializeConversationArchiveReasoningSummary(payload.summary);
-      if (summary) appendConversationArchiveProcessingMessage(processingGroup, summary, eventTimestampMs);
-      else if (Number.isFinite(eventTimestampMs)) processingGroup.lastTimestampMs = eventTimestampMs;
+
+      // 这一段只用 reasoning 事件维持“已处理”耗时，不导出新版 Codex 的内部英文摘要。
+      // Use reasoning events only for processed-duration timing without exporting newer Codex internal summaries.
+      if (Number.isFinite(eventTimestampMs)) processingGroup.lastTimestampMs = eventTimestampMs;
     } else if (["function_call", "custom_tool_call", "web_search_call", "tool_search_call"].includes(String(payload.type || ""))) {
       appendConversationArchiveProcessingToolSummary(ensurePendingProcessingGroup(), payload, eventTimestampMs);
     } else if (payload.type === "message") {
