@@ -11,23 +11,12 @@
   const navigationId = "codex-pro-diff-hover-navigation";
   const summaryAttribute = "data-codex-pro-diff-hover-summary";
   const fiberPrefix = "__reactFiber$";
-  const aboveComposerPortalId = "above-composer-portal";
   const environmentSectionKey = "environment";
   const maxFiles = 100;
   const hideDelayMs = 140;
   const workspaceFileModulePattern = /(?:assets\/)?open-workspace-file-[A-Za-z0-9_-]+\.js/u;
-  const reviewNavigationModulePattern = /(?:assets\/)?review-navigation-model-[A-Za-z0-9_-]+\.js/u;
   const reviewSidePanelTabsModulePattern = /(?:assets\/)?thread-side-panel-tabs-[A-Za-z0-9_-]+\.js/u;
-  const workspaceFileModuleFallbackPaths = [
-    "./assets/open-workspace-file-CJcJ-CWR.js",
-    "./assets/open-workspace-file-CQYIHLHN.js",
-  ];
-  const reviewNavigationModuleFallbackPaths = [
-    "./assets/review-navigation-model-CjSNogLO.js",
-  ];
-  const reviewSidePanelTabsModuleFallbackPaths = [
-    "./assets/thread-side-panel-tabs-D_LOwjfa.js",
-  ];
+  const appEntryModulePattern = /(?:assets\/)?app-(?:initial|main)-[A-Za-z0-9_-]+\.js/u;
   const routeScopeHostSelectors = ["file-tree-container", "aside", "main", "nav", "#root"];
   const maxScopeObjectDepth = 7;
   const maxScopeObjectKeys = 80;
@@ -50,8 +39,6 @@
   const maxEnvironmentGitRefreshCacheEntries = 8;
   let workspaceFileModulePromise = null;
   let workspaceFileModulePathPromise = null;
-  let reviewNavigationModulePromise = null;
-  let reviewNavigationModulePathPromise = null;
   let reviewSidePanelTabsModulePromise = null;
   let reviewSidePanelTabsModulePathPromise = null;
   let environmentReviewSingleFileScopeCleanup = null;
@@ -812,19 +799,9 @@
   function isEnvironmentDiffAnchorWithData(element, data) {
     // 这一段只接受带环境 sectionKey 和 diffStats 的结构化行，不用界面文案做兜底。
     // Accept only structured rows with environment sectionKey and diffStats; UI copy is not a fallback.
-    if (!(element instanceof HTMLElement)) return false;
-    if (element.getAttribute("role") !== "button") return false;
+    if (!(element instanceof HTMLButtonElement)) return false;
     if (!isVisibleCompactElement(element)) return false;
     return Boolean(data?.diffStats && data.isEnvironmentSection);
-  }
-
-  function findAboveComposerPortal(element) {
-    // 这一段沿父链确认触发点来自输入框上方的官方 portal，而不是聊天历史里的相似摘要。
-    // Walk ancestors to confirm the trigger comes from the official above-composer portal, not similar chat history.
-    for (let current = element; current && current !== document.body; current = current.parentElement) {
-      if (current.id === aboveComposerPortalId) return current;
-    }
-    return null;
   }
 
   function getDiffHoverPanelRoots() {
@@ -902,56 +879,68 @@
     );
   }
 
-  function hasBottomDiffLineStats(element) {
-    // 这一段只在候选按钮内部查找官方行数统计组件，避免外层动画容器继承 turn diff 后误触发。
-    // Look for the official line-stat component only inside the candidate button so outer animation containers cannot trigger.
-    if (!(element instanceof HTMLElement)) return false;
-
-    // 这一段限制扫描范围到按钮自身和少量后代，避免 hover 时做全页扫描。
-    // Keep the scan bounded to the button and a few descendants instead of scanning the page on hover.
-    const candidates = [element, ...Array.from(element.querySelectorAll("*")).slice(0, 24)];
-    for (const candidate of candidates) {
-      let fiber = getReactFiber(candidate);
-      for (let depth = 0; fiber && depth < 6; depth += 1) {
-        const props = fiber.memoizedProps || fiber.pendingProps;
-        if (props && typeof props === "object" && ("linesAdded" in props || "linesRemoved" in props)) return true;
-        fiber = fiber.return;
+  function readBottomDiffSummaryMetadata(element) {
+    // 这一段从最新版底部变更按钮的 fiber 父链读取 diffSummary 与 turn-diff 结构，不依赖 portal 或界面文案。
+    // Read the current bottom-change button's diffSummary and turn-diff structure from its fiber chain without portal or UI-copy dependencies.
+    if (!(element instanceof HTMLButtonElement)) return null;
+    let fiber = getReactFiber(element);
+    for (let depth = 0; fiber && depth < 20; depth += 1) {
+      const props = fiber.memoizedProps || fiber.pendingProps;
+      const diffSummary = props?.diffSummary;
+      const item = props?.item;
+      if (
+        diffSummary &&
+        typeof diffSummary === "object" &&
+        diffSummary.hasChanges === true &&
+        normalizeNumber(diffSummary.fileCount) > 0 &&
+        item?.type === "turn-diff" &&
+        typeof item.unifiedDiff === "string"
+      ) {
+        return {
+          additions: normalizeNumber(diffSummary.linesAdded),
+          deletions: normalizeNumber(diffSummary.linesDeleted),
+          fileCount: normalizeNumber(diffSummary.fileCount),
+        };
       }
+      fiber = fiber.return;
     }
-    return false;
+    return null;
   }
 
-  function isBottomDiffSummaryButton(element, portal) {
-    // 这一段只接受输入框上方 portal 内的官方 diff 按钮，不接受外层占位层或动画容器。
-    // Accept only the official diff button inside the above-composer portal, not placeholder or animation wrappers.
-    if (!(element instanceof HTMLElement) || !(portal instanceof HTMLElement)) return false;
-    if (!portal.contains(element)) return false;
-    if (!element.matches("button,[role='button']")) return false;
+  function isBottomDiffSummaryButton(element) {
+    // 这一段只接受最新版输入框上方的原生 turn-diff 按钮，并用官方统计核对解析出的文件摘要。
+    // Accept only the current native turn-diff button above the composer and verify its parsed file summary against official stats.
+    if (!(element instanceof HTMLButtonElement)) return false;
     if (!isVisibleCompactElement(element)) return false;
-    if (!hasBottomDiffLineStats(element)) return false;
-    return Boolean(buildSummary(readTurnDiff(element)));
+    const metadata = readBottomDiffSummaryMetadata(element);
+    const summary = buildSummary(readTurnDiff(element));
+    return Boolean(
+      metadata &&
+      summary &&
+      summary.files.length === metadata.fileCount &&
+      summary.totals.additions === metadata.additions &&
+      summary.totals.deletions === metadata.deletions
+    );
   }
 
-  function findBottomDiffSummaryButton(target, portal) {
+  function findBottomDiffSummaryButton(target) {
     // 这一段从真实事件目标向上找最近的官方 diff 按钮，鼠标在按钮外的空白区域会失败关闭。
     // Walk upward from the real event target to the nearest official diff button; empty space outside it fails closed.
     for (
       let element = target, depth = 0;
-      element && element !== portal && depth <= maxSummaryAncestorDepth;
+      element && element !== document.body && depth <= maxSummaryAncestorDepth;
       element = element.parentElement, depth += 1
     ) {
-      if (isBottomDiffSummaryButton(element, portal)) return element;
+      if (isBottomDiffSummaryButton(element)) return element;
     }
     return null;
   }
 
   function findBottomSummaryFromEventTarget(target) {
-    // 这一段只处理输入框上方 portal 内的节点，正文区域永远不会进入 diff 识别。
-    // Handle only nodes inside the above-composer portal; body content never enters diff detection.
+    // 这一段只接受最新版 turn-diff 按钮，并继续用输入框几何约束排除聊天历史里的相似摘要。
+    // Accept only the current turn-diff button and keep the composer geometry guard to exclude similar summaries in chat history.
     if (!(target instanceof HTMLElement)) return null;
-    const portal = findAboveComposerPortal(target);
-    if (!portal) return null;
-    const anchor = findBottomDiffSummaryButton(target, portal);
+    const anchor = findBottomDiffSummaryButton(target);
     if (!anchor || !isBottomSummaryAnchor(anchor)) return null;
     return {
       anchor,
@@ -968,7 +957,7 @@
       element && element !== document.body && depth <= maxEnvironmentAncestorDepth;
       element = element.parentElement, depth += 1
     ) {
-      if (element.getAttribute("role") !== "button" || !isVisibleCompactElement(element)) continue;
+      if (!(element instanceof HTMLButtonElement) || !isVisibleCompactElement(element)) continue;
       const metadata = readEnvironmentAnchorMetadata(element);
       if (!isEnvironmentDiffAnchorWithData(element, metadata)) continue;
       const data = readEnvironmentDiffData(element);
@@ -1362,13 +1351,21 @@
       return svg;
     }
 
-    function bindWorkspaceOpenRow(row, summary, file, externalDiffToolPath, externalDiffMiddleClickEnabled, externalDiffDisabledReason) {
+    function bindWorkspaceOpenRow(
+      row,
+      openContext,
+      summary,
+      file,
+      externalDiffToolPath,
+      externalDiffMiddleClickEnabled,
+      externalDiffDisabledReason,
+    ) {
       // 这一段让整行继续承担原有“左键在 Codex 内打开文件”的行为。
       // Keep the row responsible for the existing left-click "open inside Codex" behavior.
       row.setAttribute("role", "button");
       row.tabIndex = 0;
       row.addEventListener("click", () => {
-        openWorkspaceFile(summary, file);
+        openWorkspaceFile(summary, file, openContext);
       }, { signal });
       row.addEventListener("mousedown", (event) => {
         // 这一段在中键候选开始时阻止 Chromium 自动滚动，真正打开动作仍交给 auxclick。
@@ -1389,17 +1386,17 @@
         lastMiddleClickDiffAt = now;
         if (externalDiffDisabledReason) {
           console.warn("[Codex-Pro] external diff middle-click falling back to workspace open:", externalDiffDisabledReason);
-          openWorkspaceFile(summary, file);
+          openWorkspaceFile(summary, file, openContext);
           return;
         }
         if (!openExternalDiff(summary, file, externalDiffToolPath)) {
-          openWorkspaceFile(summary, file);
+          openWorkspaceFile(summary, file, openContext);
         }
       }, { signal });
       row.addEventListener("keydown", (event) => {
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault();
-        openWorkspaceFile(summary, file);
+        openWorkspaceFile(summary, file, openContext);
       }, { signal });
     }
 
@@ -1430,6 +1427,7 @@
     }
 
     function renderPanel(
+      anchor,
       summary,
       externalDiffToolPath = "",
       externalDiffMiddleClickEnabled = true,
@@ -1456,6 +1454,15 @@
       const list = document.createElement("div");
       list.className = "codex-pro-diff-hover-list";
       const externalDiffDisabledReason = getExternalDiffDisabledReason(summary, externalDiffToolPath);
+
+      // 这一段在官方 Popover 卸载环境按钮前保存入口类型和 route scope，供文件行点击继续使用。
+      // Preserve the entry type and route scope before the official Popover unmounts its environment button on row clicks.
+      const environmentReview = isEnvironmentDiffAnchor(anchor);
+      const openContext = {
+        anchor,
+        environmentReview,
+        routeScope: environmentReview ? findWorkspaceRouteScope(anchor, summary) : null,
+      };
       for (const file of summary.visibleFiles) {
         const row = document.createElement("div");
         row.className = "codex-pro-diff-hover-row";
@@ -1472,6 +1479,7 @@
         row.append(createExternalDiffButton(summary, file, externalDiffToolPath));
         bindWorkspaceOpenRow(
           row,
+          openContext,
           summary,
           file,
           externalDiffToolPath,
@@ -1565,6 +1573,7 @@
       activeAnchor.setAttribute(summaryAttribute, "true");
       if (renderedSignature !== renderSignature || !panel?.isConnected) {
         renderPanel(
+          anchor,
           summary,
           externalDiffToolPath,
           externalDiffMiddleClickEnabled,
@@ -1692,13 +1701,7 @@
       if (panel?.contains(event.target)) return;
       const match = findBottomSummaryFromEventTarget(event.target) ||
         findEnvironmentSummaryFromEventTarget(event.target);
-      if (!match) {
-        if (event.target instanceof HTMLElement && findAboveComposerPortal(event.target)) {
-          if (activeAnchor) scheduleHide();
-          else hidePanel();
-        }
-        return;
-      }
+      if (!match) return;
       if (!match.summary && match.gitFallback) {
         requestEnvironmentGitSummary(match.anchor, match.gitFallback);
         return;
@@ -1766,29 +1769,47 @@
       return normalizeCodexAssetModulePath(candidate, workspaceFileModulePattern, baseUrl);
     }
 
-    async function discoverCodexAssetModulePath(modulePattern, fallbackPaths = []) {
-      // 这一段从当前 Codex 已加载脚本里扫描真实 chunk 名称，兼容 Codex 更新后 hash 变化。
-      // Scan currently loaded Codex scripts for real chunk names so Codex hash updates do not break calls.
+    async function discoverCodexAssetModulePath(modulePattern) {
+      // 这一段合并入口脚本与浏览器资源记录，直接识别最新版客户端已经加载的目标 chunk。
+      // Merge entry scripts with browser resource records to identify target chunks already loaded by the latest client.
       const scriptUrls = Array.from(document.scripts)
         .map((script) => script.src)
-        .filter((src) => src && src.startsWith("app://-/assets/"))
-        .slice(0, 12);
+        .filter((src) => src && src.startsWith("app://-/assets/"));
+      const resourceUrls = performance.getEntriesByType("resource")
+        .map((entry) => entry.name)
+        .filter((url) => url && url.startsWith("app://-/assets/") && url.endsWith(".js"));
+      const assetUrls = Array.from(new Set([...scriptUrls, ...resourceUrls]));
 
-      for (const scriptUrl of scriptUrls) {
-        try {
-          const response = await fetch(scriptUrl);
-          if (!response.ok) continue;
-          const source = await response.text();
-          const modulePath = normalizeCodexAssetModulePath(source, modulePattern, scriptUrl);
-          if (modulePath) return modulePath;
-        } catch {
-          // Ignore unreadable app assets and continue to the pinned fallbacks below.
-        }
+      // 这一段优先匹配资源 URL 本身，目标 chunk 已加载时无需再次读取任何大脚本。
+      // Match resource URLs first so an already-loaded target chunk does not require refetching any large script.
+      for (const assetUrl of assetUrls) {
+        const modulePath = normalizeCodexAssetModulePath(assetUrl, modulePattern, assetUrl);
+        if (modulePath) return modulePath;
       }
 
-      for (const fallbackPath of fallbackPaths) {
-        const modulePath = normalizeCodexAssetModulePath(fallbackPath, modulePattern, location.href);
-        if (modulePath) return modulePath;
+      // 这一段只在直接匹配失败时有界遍历入口模块源码，允许从 index 再跟进一层 app-initial/app-main。
+      // Bounded-walk entry-module source only after a direct miss, allowing index to lead into one app-initial/app-main layer.
+      const sourceUrls = Array.from(new Set([
+        ...scriptUrls,
+        ...resourceUrls.filter((url) => /\/(?:app-initial|app-main)-[A-Za-z0-9_-]+\.js$/u.test(url)),
+      ]));
+      for (let index = 0; index < sourceUrls.length && index < 24; index += 1) {
+        const sourceUrl = sourceUrls[index];
+        try {
+          const response = await fetch(sourceUrl);
+          if (!response.ok) continue;
+          const source = await response.text();
+          const modulePath = normalizeCodexAssetModulePath(source, modulePattern, sourceUrl);
+          if (modulePath) return modulePath;
+
+          // 这一段只跟进最新版的 app-initial/app-main 入口族，不递归扫描任意 chunk。
+          // Follow only the latest app-initial/app-main entry family instead of recursively scanning arbitrary chunks.
+          const entryModulePath = normalizeCodexAssetModulePath(source, appEntryModulePattern, sourceUrl);
+          if (entryModulePath && !sourceUrls.includes(entryModulePath)) sourceUrls.push(entryModulePath);
+        } catch {
+          // 忽略不可读的应用资源并继续检查其余最新版入口。
+          // Ignore unreadable app assets and continue checking the remaining latest entrypoints.
+        }
       }
       return "";
     }
@@ -1796,7 +1817,7 @@
     async function discoverWorkspaceFileModulePath() {
       // 这一段复用官方 chunk 发现逻辑寻找右侧文件预览入口。
       // Reuse official chunk discovery for the right-side file preview entry.
-      return discoverCodexAssetModulePath(workspaceFileModulePattern, workspaceFileModuleFallbackPaths);
+      return discoverCodexAssetModulePath(workspaceFileModulePattern);
     }
 
     async function getWorkspaceFileModulePath() {
@@ -1866,49 +1887,18 @@
       return null;
     }
 
-    async function getReviewNavigationModulePath() {
-      // 这一段缓存官方 review-navigation-model chunk 路径，避免右上角点击重复扫描主脚本。
-      // Cache the official review-navigation-model chunk path so right-top clicks do not rescan the main script.
-      if (!reviewNavigationModulePathPromise) {
-        reviewNavigationModulePathPromise = discoverCodexAssetModulePath(
-          reviewNavigationModulePattern,
-          reviewNavigationModuleFallbackPaths,
-        ).catch((error) => {
-          reviewNavigationModulePathPromise = null;
-          throw error;
-        });
-      }
-      return reviewNavigationModulePathPromise;
-    }
-
     async function getReviewSidePanelTabsModulePath() {
       // 这一段缓存官方 thread-side-panel-tabs chunk 路径，供右上角快速打开 Review tab。
       // Cache the official thread-side-panel-tabs chunk path for fast right-top Review tab opening.
       if (!reviewSidePanelTabsModulePathPromise) {
         reviewSidePanelTabsModulePathPromise = discoverCodexAssetModulePath(
           reviewSidePanelTabsModulePattern,
-          reviewSidePanelTabsModuleFallbackPaths,
         ).catch((error) => {
           reviewSidePanelTabsModulePathPromise = null;
           throw error;
         });
       }
       return reviewSidePanelTabsModulePathPromise;
-    }
-
-    async function getReviewNavigationModule() {
-      // 这一段复用官方 Review 状态模块，只调用现有 source/path 入口。
-      // Reuse the official Review state module and call only its existing source/path entrypoints.
-      if (!reviewNavigationModulePromise) {
-        reviewNavigationModulePromise = getReviewNavigationModulePath().then((modulePath) => {
-          if (!modulePath) throw new Error("review-navigation-model module path not found");
-          return import(modulePath);
-        }).catch((error) => {
-          reviewNavigationModulePromise = null;
-          throw error;
-        });
-      }
-      return reviewNavigationModulePromise;
     }
 
     async function getReviewSidePanelTabsModule() {
@@ -1926,13 +1916,11 @@
       return reviewSidePanelTabsModulePromise;
     }
 
-    function getReviewSourceSetter(reviewNavigationModule) {
-      // 这一段兼容 Codex 官方 review-navigation-model 的导出名漂移：旧版本是 Bt，当前版本是 Xt。
-      // Support Codex review-navigation-model export drift: older builds use Bt, current builds use Xt.
-      for (const candidate of [reviewNavigationModule?.Bt, reviewNavigationModule?.Xt]) {
-        if (typeof candidate === "function") return candidate;
-      }
-      return null;
+    function getThreadBranchReviewOpener(reviewSidePanelTabsModule) {
+      // 这一段只读取最新版官方具名导出，避免继续依赖已经移除的短导出名和旧状态模块。
+      // Read only the latest official named export, avoiding removed short exports and the legacy state module.
+      const candidate = reviewSidePanelTabsModule?.openThreadBranchReviewSidePanelTab;
+      return typeof candidate === "function" ? candidate : null;
     }
 
     function getWorkspaceRouteScopeFallbackHosts() {
@@ -1959,10 +1947,10 @@
       });
     }
 
-    async function openWithWorkspaceFileModule(anchor, summary, file, targetRange = null) {
+    async function openWithWorkspaceFileModule(anchor, summary, file, targetRange = null, routeScope = null) {
       // 这一段调用 Codex 官方右侧文件预览入口，并用空函数拦截外部 open-file 兜底。
       // Call Codex's official right-side file preview entry and intercept the external open-file fallback.
-      const scope = findWorkspaceRouteScope(anchor, summary);
+      const scope = routeScope || findWorkspaceRouteScope(anchor, summary);
       if (!scope) return false;
       const module = await getWorkspaceFileModule();
       const openWorkspaceFile = getWorkspaceFileOpener(module);
@@ -2147,10 +2135,10 @@
       return horizontalOverlap > Math.min(candidateRect.width, anchorRect.width) * 0.5 && (verticalOverlap > 0 || closeVertical);
     }
 
-    function isCompactAboveComposerReviewTrigger(element, expectedSignature, anchor) {
+    function isCompactBottomDiffReviewTrigger(element, expectedSignature, anchor) {
       // 这一段兼容新版 Codex 输入框上方修改横条里的紧凑审查按钮，不依赖按钮文案。
       // Support the compact review button in Codex's above-composer change bar without relying on button copy.
-      if (!(anchor instanceof HTMLElement) || !findAboveComposerPortal(anchor)) return false;
+      if (!isBottomDiffSummaryButton(anchor)) return false;
       if (!(element instanceof HTMLElement) || !anchor.contains(element)) return false;
       if (!element.matches?.("button,[role='button']")) return false;
       const signature = getReviewTriggerSignature(element);
@@ -2196,7 +2184,7 @@
           if (localTrigger) return localTrigger;
           const compactLocalTrigger = Array.from(current.querySelectorAll("button,[role='button']"))
             .find((candidate) => isVisibleViewportElement(candidate) &&
-              isCompactAboveComposerReviewTrigger(candidate, summary.signature, anchor));
+              isCompactBottomDiffReviewTrigger(candidate, summary.signature, anchor));
           if (compactLocalTrigger) return compactLocalTrigger;
         }
       }
@@ -2507,34 +2495,22 @@
       });
     }
 
-    async function openOfficialSingleFileBranchReview(anchor, summary, file, sourceLabel) {
-      // 这一段复用官方 Review source/path API，直接选中目标文件而不是点击会展开全部文件的入口。
-      // Reuse Codex's official Review source/path API to select one file directly instead of clicking an all-files entrypoint.
+    async function openOfficialSingleFileBranchReview(anchor, summary, file, sourceLabel, routeScope = null) {
+      // 这一段调用最新版官方 branch Review 入口，并在同一次调用中传入目标文件。
+      // Call the latest official branch Review entrypoint and pass the target file in the same operation.
       if (!(anchor instanceof HTMLElement)) return false;
-      const scope = findWorkspaceRouteScope(anchor, summary);
+      const scope = routeScope || findWorkspaceRouteScope(anchor, summary);
       if (!scope) return false;
       try {
-        const [reviewNavigationModule, reviewSidePanelTabsModule] = await Promise.all([
-          getReviewNavigationModule(),
-          getReviewSidePanelTabsModule(),
-        ]);
-        const setReviewSource = getReviewSourceSetter(reviewNavigationModule);
-        const selectReviewPath = reviewNavigationModule?.r;
-        const openReviewTab = reviewSidePanelTabsModule?.u;
-        if (
-          typeof setReviewSource !== "function" ||
-          typeof selectReviewPath !== "function" ||
-          typeof openReviewTab !== "function"
-        ) {
-          return false;
-        }
+        const reviewSidePanelTabsModule = await getReviewSidePanelTabsModule();
+        const openBranchReview = getThreadBranchReviewOpener(reviewSidePanelTabsModule);
+        if (!openBranchReview) return false;
 
-        // 这一段只改官方已有的 Review source/path 状态，不自己构造侧栏 tab。
-        // Use only official Review source/path state and avoid constructing side-panel tabs ourselves.
-        setReviewSource(scope, "branch");
-        const opened = openReviewTab(scope);
+        // 这一段先转换为官方 Review 路径，再由官方入口原子地设置 branch、path 和 Review tab。
+        // Convert to the official Review path, then let the official entrypoint set branch, path, and Review tab atomically.
         const reviewPath = getOfficialReviewSelectPath(summary, file);
-        if (reviewPath) selectReviewPath(scope, reviewPath);
+        if (!reviewPath) return false;
+        const opened = openBranchReview(scope, { path: reviewPath });
         return Boolean(opened);
       } catch (error) {
         console.warn(`[Codex-Pro] official branch review opener failed for ${sourceLabel}`, error?.message || error);
@@ -2542,38 +2518,55 @@
       }
     }
 
-    async function openEnvironmentWorkspaceFileReview(anchor, summary, file) {
-      // 这一段为右上角环境面板直接设置官方 branch+path 状态，避免点击 Changes 行走全量入口。
-      // For the right-top environment panel, set official branch+path state directly instead of clicking Changes.
-      if (!(anchor instanceof HTMLElement) || findAboveComposerPortal(anchor) || !isEnvironmentDiffAnchor(anchor)) return false;
-      return openOfficialSingleFileBranchReview(anchor, summary, file, "diff hover preview");
+    async function openEnvironmentWorkspaceFileReview(anchor, summary, file, routeScope = null) {
+      // 这一段为右上角环境面板调用最新版官方 branch Review 入口，避免点击 Changes 行走全量入口。
+      // For the right-top environment panel, call the latest official branch Review entrypoint instead of clicking Changes.
+      if (!(anchor instanceof HTMLElement)) return false;
+      return openOfficialSingleFileBranchReview(anchor, summary, file, "diff hover preview", routeScope);
     }
 
-    async function openWorkspaceFilePreview(summary, file) {
+    async function openWorkspaceFilePreview(summary, file, openContext = null) {
       // 这一段打开 Codex 官方右侧文件预览，并初始化当前文件的变更块导航条。
       // Open Codex's official right-side file preview and initialize this file's change-hunk navigator.
-      const anchor = findSummaryAnchor(summary);
+      const anchor = openContext?.anchor instanceof HTMLElement
+        ? openContext.anchor
+        : findSummaryAnchor(summary);
       const ranges = getNavigationRanges(file);
       clearReviewSingleFileScope();
       hidePanel();
-      const opened = await openWithWorkspaceFileModule(anchor, summary, file, ranges[0] || null);
+      const opened = await openWithWorkspaceFileModule(
+        anchor,
+        summary,
+        file,
+        ranges[0] || null,
+        openContext?.routeScope || null,
+      );
       if (!opened) {
         console.warn("[Codex-Pro] official file preview opener unavailable for diff hover preview", file.path);
       }
       showNavigationForFile(anchor, summary, file, ranges);
     }
 
-    async function openWorkspaceFileReview(summary, file) {
+    async function openWorkspaceFileReview(summary, file, openContext = null) {
       // 这一段左键打开 Codex 官方审查页；右上角和输入区入口各自保留自己的限定方式。
       // Left-click opens Codex's official review view; environment and composer entries keep separate scoping.
-      const anchor = findSummaryAnchor(summary);
+      const anchor = openContext?.anchor instanceof HTMLElement
+        ? openContext.anchor
+        : findSummaryAnchor(summary);
       const filterTarget = getReviewFilterTarget(summary, file);
-      const environmentReviewAnchor = anchor instanceof HTMLElement && isEnvironmentDiffAnchor(anchor) && !findAboveComposerPortal(anchor);
+      const environmentReviewAnchor = openContext?.environmentReview === true;
       clearNavigationBar();
       hidePanel();
       clearReviewSingleFileScope();
-      if (environmentReviewAnchor && await openEnvironmentWorkspaceFileReview(anchor, summary, file)) {
-        scheduleEnvironmentReviewSingleFileToggleScope(filterTarget, file);
+      if (environmentReviewAnchor) {
+        if (await openEnvironmentWorkspaceFileReview(anchor, summary, file, openContext?.routeScope || null)) {
+          scheduleEnvironmentReviewSingleFileToggleScope(filterTarget, file);
+          return;
+        }
+
+        // 这一段在最新版官方单文件入口不可用时停止，避免误点环境变更行并展开全部文件。
+        // Stop when the latest official single-file entrypoint is unavailable to avoid clicking the environment row and expanding every file.
+        console.warn("[Codex-Pro] official environment single-file review opener unavailable", file.path);
         return;
       }
       const trigger = findReviewTriggerFromAnchor(anchor);
@@ -2582,18 +2575,17 @@
         return;
       }
       trigger.click();
-      if (environmentReviewAnchor) scheduleEnvironmentReviewSingleFileToggleScope(filterTarget, file);
-      else scheduleReviewSingleFileScope(filterTarget, file);
+      scheduleReviewSingleFileScope(filterTarget, file);
     }
 
-    function openWorkspaceFile(summary, file) {
+    function openWorkspaceFile(summary, file, openContext = null) {
       // 这一段按设置选择悬浮文件行的左键打开方式，键盘触发也复用同一入口。
       // Choose the hover file row's left-click behavior from settings, sharing the path with keyboard activation.
       if (getDiffHoverFileOpenMode() === "preview") {
-        void openWorkspaceFilePreview(summary, file);
+        void openWorkspaceFilePreview(summary, file, openContext);
         return;
       }
-      void openWorkspaceFileReview(summary, file);
+      void openWorkspaceFileReview(summary, file, openContext);
     }
 
     document.addEventListener("pointerover", handlePointerOver, { capture: true, signal });

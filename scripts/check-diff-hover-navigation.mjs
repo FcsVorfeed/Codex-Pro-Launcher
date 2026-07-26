@@ -259,60 +259,86 @@ assert(
   "diff hover right-side opening should tolerate Codex open-workspace-file export-name drift",
 );
 assert(
-  /function isCompactAboveComposerReviewTrigger/u.test(indexSource) &&
-    /findAboveComposerPortal\(anchor\)/u.test(indexSource) &&
+  /function isCompactBottomDiffReviewTrigger/u.test(indexSource) &&
+    /isBottomDiffSummaryButton\(anchor\)/u.test(indexSource) &&
     /anchor\.contains\(element\)/u.test(indexSource),
   "bottom composer compact review trigger should be accepted structurally without relying on button copy",
 );
 assert(
-  /function hasBottomDiffLineStats/u.test(indexSource) &&
-    /typeof props === "object" && \("linesAdded" in props \|\| "linesRemoved" in props\)/u.test(indexSource) &&
+  /function readBottomDiffSummaryMetadata/u.test(indexSource) &&
+    /diffSummary\.hasChanges === true/u.test(indexSource) &&
+    /item\?\.type === "turn-diff"/u.test(indexSource) &&
+    /typeof item\.unifiedDiff === "string"/u.test(indexSource) &&
+    /normalizeNumber\(diffSummary\.linesAdded\)/u.test(indexSource) &&
+    /normalizeNumber\(diffSummary\.linesDeleted\)/u.test(indexSource) &&
     /function isBottomDiffSummaryButton/u.test(indexSource) &&
-    /element\.matches\("button,\[role='button'\]"\)/u.test(indexSource),
-  "bottom composer diff hover should require the official diff button and line-stat structure",
+    /element instanceof HTMLButtonElement/u.test(indexSource),
+  "bottom composer diff hover should require the current native turn-diff button and diffSummary structure",
 );
 const findBottomSummarySource = indexSource.match(/function findBottomSummaryFromEventTarget\(target\) \{[\s\S]*?\n  \}/u)?.[0] || "";
 assert(
-  /findBottomDiffSummaryButton\(target, portal\)/u.test(findBottomSummarySource) &&
-    !/normalizeBottomTurnDiffAnchor/u.test(indexSource),
-  "bottom composer diff hover should not expand the anchor to the full above-composer animation wrapper",
+  /findBottomDiffSummaryButton\(target\)/u.test(findBottomSummarySource) &&
+    /isBottomSummaryAnchor\(anchor\)/u.test(findBottomSummarySource),
+  "bottom composer diff hover should locate the native turn-diff button and retain the composer geometry guard",
 );
 assert(
-  /function clearSummaryMarks/u.test(indexSource) &&
-    /function hideDiffHoverPanelRoots/u.test(indexSource) &&
-    /findAboveComposerPortal\(event\.target\)\) \{[\s\S]*?if \(activeAnchor\) scheduleHide\(\);[\s\S]*?else hidePanel\(\);/u.test(indexSource),
-  "bottom composer invalid hover should delay while crossing from the diff button and clean only stale surfaces immediately",
+  !/above-composer-portal|findAboveComposerPortal|hasBottomDiffLineStats/u.test(indexSource),
+  "latest-only bottom diff hover should not retain the removed portal or legacy line-stat compatibility path",
+);
+const environmentAnchorSource = indexSource.match(/function isEnvironmentDiffAnchorWithData\(element, data\) \{[\s\S]*?\n  \}/u)?.[0] || "";
+assert(
+  /element instanceof HTMLButtonElement/u.test(environmentAnchorSource) &&
+    /data\?\.diffStats && data\.isEnvironmentSection/u.test(environmentAnchorSource) &&
+    !/getAttribute\("role"\)/u.test(environmentAnchorSource),
+  "environment diff hover should accept the current native button while keeping diffStats and sectionKey validation",
 );
 assert(
-  indexSource.includes("const reviewNavigationModulePattern") &&
-    indexSource.includes("review-navigation-model-") &&
-    indexSource.includes("const reviewSidePanelTabsModulePattern") &&
+  indexSource.includes("const reviewSidePanelTabsModulePattern") &&
     indexSource.includes("thread-side-panel-tabs-"),
-  "environment review fast path should discover official Review chunks by structural asset patterns",
+  "environment review fast path should discover the latest official Review chunk by its structural asset pattern",
+);
+assert(
+  /performance\.getEntriesByType\("resource"\)/u.test(indexSource) &&
+    /normalizeCodexAssetModulePath\(assetUrl, modulePattern, assetUrl\)/u.test(indexSource) &&
+    /const appEntryModulePattern/u.test(indexSource) &&
+    /normalizeCodexAssetModulePath\(source, appEntryModulePattern, sourceUrl\)/u.test(indexSource) &&
+    /sourceUrls\.push\(entryModulePath\)/u.test(indexSource),
+  "latest chunk discovery should prefer loaded resource URLs and bounded-walk index into the current app entry graph",
 );
 assert(
   /function openEnvironmentWorkspaceFileReview/u.test(indexSource) &&
-    /function getReviewSourceSetter/u.test(indexSource) &&
-    /reviewNavigationModule\?\.Bt[\s\S]*reviewNavigationModule\?\.Xt/u.test(indexSource) &&
-    /setReviewSource\(scope, "branch"\)/u.test(indexSource) &&
-    /selectReviewPath\(scope, reviewPath\)/u.test(indexSource) &&
-    /openReviewTab\(scope\)/u.test(indexSource),
-  "environment review fast path should set official branch+path state before opening Review",
+    /function getThreadBranchReviewOpener/u.test(indexSource) &&
+    /reviewSidePanelTabsModule\?\.openThreadBranchReviewSidePanelTab/u.test(indexSource) &&
+    /openBranchReview\(scope, \{ path: reviewPath \}\)/u.test(indexSource),
+  "environment review fast path should call the latest official branch Review entrypoint with the selected path",
 );
-const openWorkspaceFileReviewSource = indexSource.match(/async function openWorkspaceFileReview\(summary, file\) \{[\s\S]*?\n    \}/u)?.[0] || "";
 assert(
-  openWorkspaceFileReviewSource.indexOf("openEnvironmentWorkspaceFileReview(anchor, summary, file)") >= 0 &&
-    openWorkspaceFileReviewSource.indexOf("findReviewTriggerFromAnchor(anchor)") >= 0 &&
-    openWorkspaceFileReviewSource.indexOf("openEnvironmentWorkspaceFileReview(anchor, summary, file)") <
+  !/review-navigation-model|reviewNavigationModule|getReviewSourceSetter|reviewSidePanelTabsModuleFallbackPaths/u.test(indexSource),
+  "latest-only environment review should not retain removed Review state modules, short exports, or pinned chunk fallbacks",
+);
+const openWorkspaceFileReviewSource =
+  indexSource.match(/async function openWorkspaceFileReview\(summary, file, openContext = null\) \{[\s\S]*?\n    \}/u)?.[0] || "";
+assert(
+  openWorkspaceFileReviewSource.indexOf("openEnvironmentWorkspaceFileReview(anchor, summary, file, openContext?.routeScope || null)") >= 0 &&
+    openWorkspaceFileReviewSource.indexOf("official environment single-file review opener unavailable") >= 0 &&
+    openWorkspaceFileReviewSource.indexOf("return;") <
       openWorkspaceFileReviewSource.indexOf("findReviewTriggerFromAnchor(anchor)"),
-  "environment review fast path should run before falling back to clicking the old trigger",
+  "environment review should stop when the latest single-file API is unavailable instead of clicking the all-files trigger",
 );
 assert(
   openWorkspaceFileReviewSource.includes("const environmentReviewAnchor =") &&
     openWorkspaceFileReviewSource.includes("const filterTarget = getReviewFilterTarget(summary, file)") &&
     openWorkspaceFileReviewSource.includes("scheduleEnvironmentReviewSingleFileToggleScope(filterTarget, file)") &&
-    openWorkspaceFileReviewSource.includes("else scheduleReviewSingleFileScope(filterTarget, file)"),
+    openWorkspaceFileReviewSource.includes("scheduleReviewSingleFileScope(filterTarget, file)"),
   "environment review should use official per-file toggles while non-environment review keeps the existing scope path",
+);
+assert(
+  /openContext\?\.anchor instanceof HTMLElement/u.test(openWorkspaceFileReviewSource) &&
+    /openContext\?\.environmentReview === true/u.test(openWorkspaceFileReviewSource) &&
+    /function renderPanel\(\s*anchor,\s*summary,/u.test(indexSource) &&
+    /routeScope: environmentReview \? findWorkspaceRouteScope\(anchor, summary\) : null/u.test(indexSource) &&
+    /bindWorkspaceOpenRow\(\s*row,\s*openContext,\s*summary,/u.test(indexSource),
+  "rendered hover rows should retain their entry type and route scope across Git refreshes and Popover unmounts",
 );
 const reviewDiffPathMatchesSource =
   indexSource.match(/function reviewDiffPathMatches\(candidatePath, targetPath\) \{[\s\S]*?\n    \}/u)?.[0] || "";
@@ -377,17 +403,18 @@ assert(
 assert(
   /function openWorkspaceFilePreview/u.test(indexSource) &&
     /function showNavigationForFile/u.test(indexSource) &&
-    /openWithWorkspaceFileModule\(anchor, summary, file, ranges\[0\] \|\| null\)/u.test(indexSource) &&
+    /openWithWorkspaceFileModule\([\s\S]*?ranges\[0\] \|\| null,[\s\S]*?openContext\?\.routeScope \|\| null/u.test(indexSource) &&
     /\{ line: normalizedRange\.line, endLine: normalizedRange\.endLine \}/u.test(indexSource),
   "preview open mode should keep the side-panel hunk navigator and line/endLine jumps",
 );
-const bindWorkspaceOpenRowSource = indexSource.match(/function bindWorkspaceOpenRow\(row, summary, file,[\s\S]*?\n    \}/u)?.[0] || "";
+const bindWorkspaceOpenRowSource =
+  indexSource.match(/function bindWorkspaceOpenRow\(\s*row,\s*openContext,\s*summary,[\s\S]*?\n    \}/u)?.[0] || "";
 assert(
-  /if \(externalDiffDisabledReason\) \{[\s\S]*?openWorkspaceFile\(summary, file\);[\s\S]*?return;/u.test(bindWorkspaceOpenRowSource),
+  /if \(externalDiffDisabledReason\) \{[\s\S]*?openWorkspaceFile\(summary, file, openContext\);[\s\S]*?return;/u.test(bindWorkspaceOpenRowSource),
   "hover row middle-click should fall back to the normal workspace opener when external diff is unavailable",
 );
 assert(
-  /if \(!openExternalDiff\(summary, file, externalDiffToolPath\)\) \{[\s\S]*?openWorkspaceFile\(summary, file\);[\s\S]*?\}/u.test(bindWorkspaceOpenRowSource),
+  /if \(!openExternalDiff\(summary, file, externalDiffToolPath\)\) \{[\s\S]*?openWorkspaceFile\(summary, file, openContext\);[\s\S]*?\}/u.test(bindWorkspaceOpenRowSource),
   "hover row middle-click should fall back when the external diff bridge rejects the request",
 );
 assert(
