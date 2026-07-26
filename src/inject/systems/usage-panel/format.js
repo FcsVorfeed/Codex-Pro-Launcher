@@ -4,20 +4,20 @@
   const usagePanel = runtime.systemModules.usagePanel ??= {};
   const i18n = runtime.i18n;
 
-  function getWindowLabel(windowInfo, fallbackLabel) {
+  function getWindowKind(windowInfo) {
     // 这一段按 Codex 返回的窗口秒数识别 5 小时和 1 周，避免依赖返回顺序。
     // Identify five-hour and weekly windows from duration seconds instead of relying on order.
     const seconds = Number(windowInfo?.limit_window_seconds);
     if (Number.isFinite(seconds)) {
       const hours = seconds / 3600;
       const days = seconds / 86_400;
-      if (Math.abs(hours - 5) <= 0.25) return i18n.t("usage.window.fiveHours");
-      if (Math.abs(days - 7) <= 0.25) return i18n.t("usage.window.oneWeek");
+      if (Math.abs(hours - 5) <= 0.25) return "fiveHours";
+      if (Math.abs(days - 7) <= 0.25) return "oneWeek";
     }
 
-    // 这一段在接口缺少窗口秒数时保留默认标签，保证 UI 不空白。
-    // Keep the fallback label when the API omits duration so the UI never goes blank.
-    return fallbackLabel;
+    // 这一段把缺少时长或未知时长标记为不可识别，避免把周额度误标成 5 小时额度。
+    // Mark missing or unknown durations as unrecognized so weekly quota is never mislabeled as five-hour quota.
+    return "";
   }
 
   function formatRemainingPercent(windowInfo) {
@@ -165,18 +165,37 @@
   }
 
   function normalizeUsageRows(usage) {
-    // 这一段读取 Codex 内部 /wham/usage 响应里的两个核心窗口。
-    // Read the two core windows from Codex's internal /wham/usage response.
+    // 这一段按窗口时长收集 Codex 返回的数据，兼容官方把周额度从 secondary 移到 primary。
+    // Collect Codex windows by duration so weekly quota can move from secondary to primary safely.
+    const primaryWindow = usage?.rate_limit?.primary_window;
+    const secondaryWindow = usage?.rate_limit?.secondary_window;
+    const windowByKind = new Map();
+    for (const windowInfo of [primaryWindow, secondaryWindow]) {
+      const kind = getWindowKind(windowInfo);
+      if (kind && !windowByKind.has(kind)) windowByKind.set(kind, windowInfo);
+    }
+
+    // 这一段仅在两个窗口都无法识别时沿用旧字段位置，保留旧版缺少时长字段的兼容性。
+    // Fall back to legacy field positions only when neither window is recognizable, preserving older payloads without durations.
+    const useLegacyPositions = windowByKind.size === 0;
     const windows = [
-      { key: "primary", fallbackLabel: i18n.t("usage.window.fiveHours"), data: usage?.rate_limit?.primary_window },
-      { key: "secondary", fallbackLabel: i18n.t("usage.window.oneWeek"), data: usage?.rate_limit?.secondary_window },
+      {
+        key: "primary",
+        label: i18n.t("usage.window.fiveHours"),
+        data: windowByKind.get("fiveHours") ?? (useLegacyPositions ? primaryWindow : null),
+      },
+      {
+        key: "secondary",
+        label: i18n.t("usage.window.oneWeek"),
+        data: windowByKind.get("oneWeek") ?? (useLegacyPositions ? secondaryWindow : null),
+      },
     ];
 
     // 这一段生成面板需要的纯展示数据，避免把账号字段写入 DOM。
     // Build display-only rows so account fields are never written into the DOM.
     return windows.map((windowEntry) => ({
       key: windowEntry.key,
-      label: getWindowLabel(windowEntry.data, windowEntry.fallbackLabel),
+      label: windowEntry.label,
       value: `${formatRemainingPercent(windowEntry.data)} ${formatResetTime(windowEntry.data)}`,
     }));
   }
