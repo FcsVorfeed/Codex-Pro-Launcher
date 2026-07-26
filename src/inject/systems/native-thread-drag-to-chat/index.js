@@ -4,14 +4,12 @@
   const i18n = runtime.i18n;
 
   const systemName = "native-thread-drag-to-chat";
-  const dragDataType = "application/x-codex-pro-native-thread";
   const threadSelector = "[data-app-action-sidebar-thread-id]";
   const sidebarScrollSelector = "[data-app-action-sidebar-scroll]";
+  const fiberPrefix = "__reactFiber$";
   const styleId = "codex-pro-native-thread-drag-to-chat-style";
   const ghostId = "codex-pro-native-thread-drag-to-chat-ghost";
-  const draggableAttr = "data-codex-pro-native-thread-draggable";
   const dragStateAttr = "data-codex-pro-native-thread-drag-state";
-  const dragImageClassName = "codex-pro-native-thread-drag-image";
   const pointerDragThresholdPx = 8;
   const ghostOffset = 14;
   const statusHideDelayMs = 1200;
@@ -74,14 +72,6 @@
         overflow: hidden;
         text-overflow: ellipsis;
       }
-      ${sidebarScrollSelector} ${threadSelector}[${draggableAttr}="true"] {
-        -webkit-user-drag: element;
-        user-select: none;
-      }
-      ${sidebarScrollSelector} ${threadSelector}[${draggableAttr}="true"],
-      ${sidebarScrollSelector} ${threadSelector}[${draggableAttr}="true"] * {
-        cursor: grabbing;
-      }
       body[${dragStateAttr}="blocked"],
       body[${dragStateAttr}="blocked"] * {
         cursor: no-drop !important;
@@ -89,21 +79,6 @@
       body[${dragStateAttr}="copy"],
       body[${dragStateAttr}="copy"] * {
         cursor: copy !important;
-      }
-      .${dragImageClassName} {
-        background: var(--color-token-dropdown-background, var(--color-background-primary, rgba(32, 32, 32, 0.98)));
-        border: 1px solid var(--color-token-input-border, rgba(255, 255, 255, 0.16));
-        border-radius: 8px;
-        box-shadow: rgba(0, 0, 0, 0.28) 0 12px 28px -16px, rgba(0, 0, 0, 0.18) 0 4px 10px -6px;
-        box-sizing: border-box;
-        color: var(--text-primary, inherit);
-        left: -9999px;
-        max-width: 340px;
-        opacity: 0.92;
-        overflow: hidden;
-        pointer-events: none;
-        position: fixed;
-        top: -9999px;
       }
     `;
     document.head.append(style);
@@ -167,6 +142,32 @@
     return /^[A-Za-z0-9_.:-]{8,180}$/u.test(threadId) ? threadId : "";
   }
 
+  function getReactFiber(element) {
+    // 这一段通过官方 React 节点上的内部 fiber 读取新版会话行数据，不依赖标题或其它界面文案。
+    // Read updated thread-row data through the official React node's internal fiber without depending on titles or UI copy.
+    const key = element
+      ? Object.getOwnPropertyNames(element).find((name) => name.startsWith(fiberPrefix))
+      : "";
+    return key ? element[key] : null;
+  }
+
+  function findCanonicalThreadId(row) {
+    // 这一段优先读取新版会话行的正式 conversationId；DOM thread key 可能仍是 client-new-thread 临时键。
+    // Prefer the updated row's canonical conversationId because its DOM thread key may still be a client-new-thread placeholder.
+    let fiber = getReactFiber(row);
+    for (let depth = 0; fiber && depth < 32; depth += 1) {
+      const props = fiber.memoizedProps || fiber.pendingProps || {};
+      const candidate =
+        props.conversationId ||
+        props.entry?.conversationId ||
+        props.tooltipContent?.props?.children?.props?.conversationId;
+      const threadId = normalizeThreadId(candidate);
+      if (threadId) return threadId;
+      fiber = fiber.return;
+    }
+    return "";
+  }
+
   function normalizeThreadTitle(row, threadId) {
     // 这一段只把标题当作拖拽反馈和附件 label 兜底，不用它定位或查找会话。
     // Use the title only as drag feedback and attachment-label fallback, never for locating the thread.
@@ -184,7 +185,9 @@
     if (!row) return null;
     const sidebar = row.closest?.(sidebarScrollSelector);
     if (!sidebar) return null;
-    const threadId = normalizeThreadId(row.getAttribute("data-app-action-sidebar-thread-id"));
+    const threadId =
+      findCanonicalThreadId(row) ||
+      normalizeThreadId(row.getAttribute("data-app-action-sidebar-thread-id"));
     if (!threadId) return null;
     return {
       element: row,
@@ -219,11 +222,8 @@
     runtime.lifecycle?.replaceController?.(systemName, controller);
     const { signal } = controller;
     let activePointerDrag = null;
-    let activeNativeThreadDrag = null;
-    let activeDragImage = null;
     let suppressClickUntil = 0;
     let hideStatusTimer = 0;
-    const markedRows = new Map();
 
     function clearHideStatusTimer() {
       // 这一段清理状态浮层定时器，避免前一次成功/失败延迟隐藏影响下一次拖拽。
@@ -249,76 +249,13 @@
       else document.body.removeAttribute(dragStateAttr);
     }
 
-    function clearNativeDragImage() {
-      // 这一段清理为 setDragImage 创建的临时 DOM，避免重复拖拽积累节点。
-      // Remove the temporary setDragImage DOM so repeated drags do not accumulate nodes.
-      activeDragImage?.remove?.();
-      activeDragImage = null;
-    }
-
-    function clearMarkedRows() {
-      // 这一段卸载时还原被标记为可拖拽的官方侧栏行，避免设置关闭后保留拖拽游标。
-      // Restore native sidebar rows marked as draggable when the setting is disabled.
-      for (const [row, previousDraggable] of markedRows) {
-        if (previousDraggable === null) row.removeAttribute("draggable");
-        else row.setAttribute("draggable", previousDraggable);
-        row.removeAttribute(draggableAttr);
-      }
-      markedRows.clear();
-    }
-
     function clearActiveDrag({ keepGhost = false, suppressClick = false } = {}) {
       // 这一段清理本次拖拽状态，避免下一次普通拖拽复用旧 threadId。
       // Clear this drag state so the next normal drag cannot reuse a stale threadId.
       activePointerDrag = null;
-      activeNativeThreadDrag = null;
-      clearNativeDragImage();
       setDragCursorState("");
-      clearMarkedRows();
       if (suppressClick) suppressClickUntil = Date.now() + 600;
       if (!keepGhost) hideGhost();
-    }
-
-    function prepareNativeThreadRow(row) {
-      // 这一段只设置原生 draggable 属性，不添加 Codex-Pro 光标样式标记。
-      // Set only the native draggable attribute without adding Codex-Pro cursor styling.
-      if (!row) return;
-      if (!markedRows.has(row)) {
-        markedRows.set(row, row.getAttribute("draggable"));
-      }
-      row.setAttribute("draggable", "true");
-    }
-
-    function markNativeThreadRow(target) {
-      // 这一段只在真实拖拽开始后添加 Codex-Pro 拖拽视觉状态，避免 hover 改变官方默认光标。
-      // Add Codex-Pro drag affordance only after a real drag starts, avoiding hover-time cursor changes.
-      const thread = findNativeThreadRow(target);
-      if (!thread?.element) return null;
-      installStyle();
-      prepareNativeThreadRow(thread.element);
-      thread.element.setAttribute(draggableAttr, "true");
-      return thread;
-    }
-
-    function installNativeDragImage(event, thread) {
-      // 这一段用官方行克隆作为原生拖拽预览，视觉上更接近“整块会话卡片被拖出来”。
-      // Use a clone of the native row as the drag image so the whole conversation row appears dragged.
-      if (!event.dataTransfer || !thread?.element) return;
-      clearNativeDragImage();
-      const sourceRect = thread.element.getBoundingClientRect();
-      const image = thread.element.cloneNode(true);
-      image.classList.add(dragImageClassName);
-      image.setAttribute("aria-hidden", "true");
-      image.style.width = `${Math.min(Math.max(sourceRect.width || 220, 180), 340)}px`;
-      document.body.append(image);
-      activeDragImage = image;
-      try {
-        const offsetX = Math.min(Math.max(12, event.clientX - sourceRect.left), Math.max(12, sourceRect.width - 12));
-        const offsetY = Math.min(Math.max(12, event.clientY - sourceRect.top), Math.max(12, sourceRect.height - 12));
-        event.dataTransfer.setDragImage(image, Math.round(offsetX), Math.round(offsetY));
-      } catch {
-        clearNativeDragImage();
-      }
     }
 
     function updateDropFeedback(event) {
@@ -339,15 +276,6 @@
       // 这一段计算按下点到当前位置的距离，用于区分点击打开和真实拖拽。
       // Measure movement from press point to separate normal clicks from real drags.
       return Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
-    }
-
-    function getDraggedThread(event) {
-      // 这一段优先使用同页内存拖拽对象，再兼容受限 dataTransfer 里的 threadId。
-      // Prefer the in-page drag object, then fall back to the constrained threadId in dataTransfer.
-      if (activeNativeThreadDrag?.threadId) return activeNativeThreadDrag;
-      const threadId = normalizeThreadId(event.dataTransfer?.getData?.(dragDataType));
-      if (!threadId) return null;
-      return { threadId, title: threadId };
     }
 
     async function attachNativeThreadToComposer(thread, event = null) {
@@ -389,7 +317,7 @@
       if (event.button !== 0) return;
       const thread = findNativeThreadRow(event.target);
       if (!thread) return;
-      prepareNativeThreadRow(thread.element);
+      clearActiveDrag();
       clearHideStatusTimer();
       activePointerDrag = {
         hasDragged: false,
@@ -411,9 +339,8 @@
       }
       if (getPointerDistance(drag, event) >= pointerDragThresholdPx) {
         drag.hasDragged = true;
-        activeNativeThreadDrag = markNativeThreadRow(drag.thread.element) || drag.thread;
-        if (updateDropFeedback(event)) showGhost(drag.thread.title, event, "drop");
-        else hideGhost();
+        const isComposerDrop = updateDropFeedback(event);
+        showGhost(drag.thread.title, event, isComposerDrop ? "drop" : "");
       }
     }
 
@@ -435,62 +362,16 @@
       if (isComposerDrop) void attachNativeThreadToComposer(drag.thread, event);
     }
 
-    function handlePointerCancel() {
-      // 这一段把原生拖拽启动时的 pointercancel 视为拖拽交接，不清掉 threadId。
-      // Treat pointercancel during native drag startup as handoff instead of clearing the threadId.
-      if (activeNativeThreadDrag?.threadId) return;
-      if (activePointerDrag?.thread?.threadId) {
-        activeNativeThreadDrag = activePointerDrag.thread;
-        activePointerDrag = null;
-        return;
-      }
-      clearActiveDrag();
+    function handleVisibilityChange() {
+      // 这一段在页面进入后台时立即结束 pointer 会话，避免系统级切换留下光标状态。
+      // End the pointer session as soon as the page becomes hidden so system-level switching cannot leave cursor state behind.
+      if (document.visibilityState === "hidden") clearActiveDrag();
     }
 
-    function handleDragStart(event) {
-      // 这一段兼容会触发 HTML5 dragstart 的官方行，只写入 threadId，不写标题或正文。
-      // Support native rows that emit HTML5 dragstart, writing only threadId and no title/body.
-      const thread = markNativeThreadRow(event.target);
-      if (!thread) return;
-      activeNativeThreadDrag = thread;
-      activePointerDrag = null;
-      clearHideStatusTimer();
-      hideGhost();
-      setDragCursorState("blocked");
-      try {
-        event.dataTransfer?.setData?.(dragDataType, thread.threadId);
-        if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy";
-        installNativeDragImage(event, thread);
-      } catch {
-        // 这一段忽略 dataTransfer 写入失败，同页内存状态仍可完成投放。
-        // Ignore dataTransfer write failures because in-page memory can still complete the drop.
-      }
-    }
-
-    function handleDragOver(event) {
-      // 这一段只在官方对话拖到 composer 上时允许 drop，其它拖拽继续交给 Codex 原生处理。
-      // Allow drop only for native-thread drags over the composer; every other drag stays native.
-      const thread = getDraggedThread(event);
-      if (!thread) return;
-      const isComposerDrop = updateDropFeedback(event);
-      hideGhost();
-      if (!isComposerDrop) {
-        if (event.dataTransfer) event.dataTransfer.dropEffect = "none";
-        return;
-      }
-      event.preventDefault();
-      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
-    }
-
-    function handleDrop(event) {
-      // 这一段接管 composer 内的官方对话 drop，并在落下后才导出 Markdown。
-      // Handle native-thread drops inside the composer and export Markdown only after the drop.
-      const thread = getDraggedThread(event);
-      if (!thread || !getAttachmentApi()?.isComposerDropEvent(event)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      clearActiveDrag({ keepGhost: true, suppressClick: true });
-      void attachNativeThreadToComposer(thread, event);
+    function handleEscapeKey(event) {
+      // 这一段让 Escape 成为明确取消入口，和用户对普通拖拽的预期一致。
+      // Treat Escape as an explicit cancel action, matching normal drag expectations.
+      if (event.key === "Escape") clearActiveDrag();
     }
 
     function suppressNativeClickAfterDrag(event) {
@@ -506,14 +387,12 @@
     document.addEventListener("pointerdown", startPointerDrag, { capture: true, signal });
     document.addEventListener("pointermove", updatePointerDrag, { capture: true, signal });
     document.addEventListener("pointerup", finishPointerDrag, { capture: true, signal });
-    document.addEventListener("pointercancel", handlePointerCancel, { capture: true, signal });
-    document.addEventListener("dragstart", handleDragStart, { capture: true, signal });
-    document.addEventListener("dragover", handleDragOver, { capture: true, signal });
-    document.addEventListener("drop", handleDrop, { capture: true, signal });
-    document.addEventListener("dragend", () => clearActiveDrag(), { capture: true, signal });
-    document.addEventListener("dragcancel", () => clearActiveDrag(), { capture: true, signal });
+    document.addEventListener("pointercancel", clearActiveDrag, { capture: true, signal });
+    document.addEventListener("lostpointercapture", clearActiveDrag, { capture: true, signal });
     document.addEventListener("click", suppressNativeClickAfterDrag, { capture: true, signal });
-    window.addEventListener("blur", () => clearActiveDrag(), { signal });
+    document.addEventListener("keydown", handleEscapeKey, { capture: true, signal });
+    document.addEventListener("visibilitychange", handleVisibilityChange, { signal });
+    window.addEventListener("blur", clearActiveDrag, { signal });
 
     if (!window.PointerEvent) {
       // 这一段只在没有 PointerEvent 的环境启用 mouse fallback，避免现代 Electron 重复处理。
@@ -528,7 +407,6 @@
       // Clean up ghost and status timers on unload.
       clearHideStatusTimer();
       clearActiveDrag();
-      clearMarkedRows();
       document.getElementById(ghostId)?.remove();
       document.getElementById(styleId)?.remove();
     }, { once: true });
