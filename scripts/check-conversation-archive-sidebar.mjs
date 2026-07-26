@@ -33,6 +33,7 @@ function normalizePathForPreviewLinkCheck(value) {
     .replace(/\\/gu, "/")
     .replace(/\/+$/u, "")
     .trim()
+    .replace(/^text-editor:local:/iu, "")
     .replace(/^file:local:/iu, "")
     .replace(/^file:\/\/\/?/iu, "")
     .replace(/^\/([A-Za-z]:\/)/u, "$1");
@@ -222,15 +223,23 @@ assert(
 assert(
   /function getConversationArchivePreviewDirectory\(panel\)/u.test(source) &&
     /data-tab-id/u.test(source) &&
-    /conversationArchivePreviewPathSegment/u.test(source),
-  "conversation archive thinking-link interception should derive the preview directory from the preview tab",
+    /conversationArchivePreviewPathSegment/u.test(source) &&
+    /tabId\.replace\(\/\^text-editor:local:\/u, ""\)/u.test(source),
+  "conversation archive thinking-link interception should derive the preview directory from the current text-editor:local tab",
 );
 assert(
   /function normalizeConversationArchiveLocalPath\(value\)/u.test(source) &&
     /decodeConversationArchivePromptLink\(value\)/u.test(source) &&
+    /\^text-editor:local:/u.test(source) &&
     /\^file:local:/u.test(source) &&
     /\^file:\\\/\\\/\\\/\?/u.test(source),
-  "conversation archive local path normalization should accept encoded file:local and file URI link shapes",
+  "conversation archive local path normalization should accept current text-editor:local tab ids and encoded local URI shapes",
+);
+const previewTabMatcherSource = extractFunctionSource(source, "function isConversationArchivePreviewTabPanel(panel)");
+assert(
+  /tabId\.startsWith\("text-editor:local:"\)/u.test(previewTabMatcherSource) &&
+    !/tabId\.startsWith\("file:local:"\)/u.test(previewTabMatcherSource),
+  "conversation archive preview interception should support only current text-editor:local tabs",
 );
 assert(
   /function isConversationArchiveThinkingPreviewPath\(value\)/u.test(source) &&
@@ -249,6 +258,7 @@ assert(
 );
 assert(
     matchesThinkingPreviewPathForCheck("C:/Users/example/.codex/.Codex-Pro-Launcher/conversation-archive-preview/thread-title/thinking-001-abcdef123456.md") &&
+    matchesThinkingPreviewPathForCheck("text-editor:local:C:/Users/example/.codex/.Codex-Pro-Launcher/conversation-archive-preview/thread%20title/thinking-001-abcdef123456.md") &&
     matchesThinkingPreviewPathForCheck("file:local:/C:/Users/example/.codex/.Codex-Pro-Launcher/conversation-archive-preview/thread%20title/thinking-001-abcdef123456.md") &&
     matchesThinkingPreviewPathForCheck("file:///C:/Users/example/.codex/.Codex-Pro-Launcher/conversation-archive-preview/thread%20title/thinking-001-abcdef123456.md") &&
     matchesThinkingPreviewPathForCheck("X:/Example/Codex-Pro/.codex/.Codex-Pro-Launcher/conversation-archive-preview/thread-title/thinking-001-abcdef123456.md") &&
@@ -258,20 +268,42 @@ assert(
     !matchesThinkingPreviewPathForCheck("C:/Users/example/.codex/.Codex-Pro-Launcher/conversation-archive-preview/../thinking-001-abcdef123456.md"),
   "conversation archive thinking-link path contract should reject external, html, normal markdown, and dot-segment paths",
 );
+
+// 这一段直接执行点击位置解析器，证明它按 Markdown 结构工作且不依赖中文“已处理”文案。
+// Execute the clicked-position resolver directly to prove it follows Markdown structure without depending on Chinese display copy.
+const thinkingLinkPositionResolver = new Function(
+  `${extractFunctionSource(source, "function findConversationArchiveThinkingLinkAtPosition(lineText, lineFrom, position)")}; return findConversationArchiveThinkingLinkAtPosition;`,
+)();
+const thinkingLinkFixture = "prefix [Processed 2m](<C:/Users/example/.codex/.Codex-Pro-Launcher/conversation-archive-preview/thread-title/thinking-001-abcdef123456.md>) suffix";
+const thinkingLinkLabelPosition = 500 + thinkingLinkFixture.indexOf("Processed") + 2;
 assert(
-  /function getConversationArchiveThinkingLinkFromEvent\(event\)/u.test(source) &&
-    /\[data-file-reference="true"\]\[data-prompt-link-href\]/u.test(source) &&
-    /isConversationArchivePreviewTabPanel\(panel\)/u.test(source),
-  "conversation archive thinking-link interception should only target Codex file-reference buttons inside archive preview tabs",
+  thinkingLinkPositionResolver(thinkingLinkFixture, 500, thinkingLinkLabelPosition) ===
+    "C:/Users/example/.codex/.Codex-Pro-Launcher/conversation-archive-preview/thread-title/thinking-001-abcdef123456.md" &&
+    thinkingLinkPositionResolver(thinkingLinkFixture, 500, 500) === "" &&
+    thinkingLinkPositionResolver("prefix [Processed](<C:/Users/example/notes.md>)", 500, 510) === "",
+  "conversation archive thinking-link resolver should return only the structurally clicked thinking target",
+);
+
+const thinkingLinkEventSource = extractFunctionSource(source, "function getConversationArchiveThinkingLinkFromEvent(event)");
+assert(
+  /\[role='textbox'\]\[contenteditable='true'\]/u.test(thinkingLinkEventSource) &&
+    /content\.cmTile\?\.view/u.test(thinkingLinkEventSource) &&
+    /view\.posAtCoords/u.test(thinkingLinkEventSource) &&
+    /view\.state\.doc\.lineAt\(position\)/u.test(thinkingLinkEventSource) &&
+    /findConversationArchiveThinkingLinkAtPosition/u.test(thinkingLinkEventSource) &&
+    !/data-file-reference|data-prompt-link-href|已处理/u.test(thinkingLinkEventSource),
+  "conversation archive thinking-link interception should resolve the clicked Markdown label from the current CodeMirror document",
 );
 assert(
-  /function handleConversationArchivePreviewLinkClick\(event\)/u.test(source) &&
-    /event\.button !== 0/u.test(source) &&
-    /function handleConversationArchivePreviewLinkKeydown\(event\)/u.test(source) &&
-    /event\.key !== "Enter" && event\.key !== " "/u.test(source) &&
-    /document\.addEventListener\("click", handleConversationArchivePreviewLinkClick, \{ capture: true, signal: controller\.signal \}\)/u.test(source) &&
-    /document\.addEventListener\("keydown", handleConversationArchivePreviewLinkKeydown, \{ capture: true, signal: controller\.signal \}\)/u.test(source),
-  "conversation archive thinking-link interception should capture mouse and keyboard activation through lifecycle-scoped listeners",
+  /function handleConversationArchivePreviewLinkPointerDown\(event\)/u.test(source) &&
+    /event\.button !== 0 \|\| \(!event\.ctrlKey && !event\.metaKey\)/u.test(source) &&
+    /window\.addEventListener\("pointerdown", handleConversationArchivePreviewLinkPointerDown, \{ capture: true, signal: controller\.signal \}\)/u.test(source) &&
+    !/handleConversationArchivePreviewLinkClick|handleConversationArchivePreviewLinkKeydown/u.test(source),
+  "conversation archive thinking-link interception should capture only Ctrl/Command plus left-button presses before Codex navigation",
+);
+assert(
+  !/document\.addEventListener\("click", handleConversationArchivePreviewLink/u.test(source),
+  "conversation archive thinking-link interception should leave plain clicks to Codex",
 );
 
 // 这一段固定弹出框交互：首次贴住左侧栏右边缘和左下角入口底部，但之后不能再跟随侧栏自动隐藏。

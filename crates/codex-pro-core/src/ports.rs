@@ -74,7 +74,7 @@ pub fn try_acquire_launcher_guard() -> std::io::Result<Option<LauncherGuard>> {
     // Prefer a Windows named mutex so the fixed TCP guard port cannot collide with the dynamic port pool.
     #[cfg(windows)]
     {
-        return try_acquire_windows_mutex_guard_by_name(LAUNCHER_GUARD_MUTEX_NAME);
+        try_acquire_windows_mutex_guard_by_name(LAUNCHER_GUARD_MUTEX_NAME)
     }
 
     // 这一段在非 Windows 平台继续使用本地端口 guard 作为兼容 fallback。
