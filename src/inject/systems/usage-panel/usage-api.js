@@ -196,6 +196,12 @@
     return /^[A-Za-z0-9_.:-]{8,180}$/u.test(key) ? key : "";
   }
 
+  function isProvisionalThreadId(threadId) {
+    // 这一段识别 Codex 新建会话尚未映射到服务端 UUID 时使用的结构化临时 id。
+    // Identify the structured temporary id used before a new Codex thread is mapped to its server UUID.
+    return /^client-new-thread:/iu.test(String(threadId || ""));
+  }
+
   function sessionIdFromRow(row) {
     // 这一段复用侧边栏结构化 thread id，并归一化为 token 通知使用的裸线程 id。
     // Reuse the structured sidebar thread id and normalize it to the bare id used by token notifications.
@@ -258,17 +264,19 @@
     // 这一段只接受 Codex 官方线程路由，避免首页、新建页或其它 scope 误绑定 token 缓存。
     // Accept only Codex's official thread routes so home, new-thread, or unrelated scopes do not bind token cache.
     if (!scope || typeof scope !== "object") return "";
-    if (typeof scope.get !== "function" || typeof scope.set !== "function") return "";
-    if (!scope.node || !scope.chain) return "";
     try {
+      // 这一段把 route scope 的结构读取放进同一安全边界，跳过跨域 Window 等受保护对象。
+      // Keep route-scope structure reads inside one safety boundary so protected objects such as cross-origin Windows are skipped.
+      if (typeof scope.get !== "function" || typeof scope.set !== "function") return "";
+      if (!scope.node || !scope.chain) return "";
       if (!scope.queryClient) return "";
+      const route = readRouteScopeValue(scope);
+      if (!route || typeof route !== "object") return "";
+      if (route.routeKind !== "local-thread" && route.routeKind !== "remote-thread") return "";
+      return validThreadId(route.conversationId || route.threadId || route.sessionId || "");
     } catch {
       return "";
     }
-    const route = readRouteScopeValue(scope);
-    if (!route || typeof route !== "object") return "";
-    if (route.routeKind !== "local-thread" && route.routeKind !== "remote-thread") return "";
-    return validThreadId(route.conversationId || route.threadId || route.sessionId || "");
   }
 
   function scanRouteScopeObject(value, seenObjects, depth = 0) {
@@ -284,19 +292,42 @@
     if (ownThreadId) return ownThreadId;
     if (typeof value !== "object") return "";
 
-    if (value instanceof Map && depth < 3) {
-      let index = 0;
-      for (const [key, child] of value) {
-        const keyThreadId = scanRouteScopeObject(key, seenObjects, depth + 1);
-        if (keyThreadId) return keyThreadId;
-        const childThreadId = scanRouteScopeObject(child, seenObjects, depth + 1);
-        if (childThreadId) return childThreadId;
-        index += 1;
-        if (index >= routeScopeObjectKeys) break;
+    let isMap = false;
+    try {
+      // 这一段单独保护原型链检查，避免受保护 Proxy 在 instanceof 时中断整个 route fallback。
+      // Protect the prototype-chain check so a guarded Proxy cannot abort the entire route fallback during instanceof.
+      isMap = value instanceof Map;
+    } catch {
+      isMap = false;
+    }
+    if (isMap && depth < 3) {
+      try {
+        // 这一段限制 Map 扫描数量，并跳过无法安全迭代的代理 Map。
+        // Limit Map scanning and skip proxied Maps that cannot be iterated safely.
+        let index = 0;
+        for (const [key, child] of value) {
+          const keyThreadId = scanRouteScopeObject(key, seenObjects, depth + 1);
+          if (keyThreadId) return keyThreadId;
+          const childThreadId = scanRouteScopeObject(child, seenObjects, depth + 1);
+          if (childThreadId) return childThreadId;
+          index += 1;
+          if (index >= routeScopeObjectKeys) break;
+        }
+      } catch {
+        // 这一段只放弃当前异常 Map，后续仍尝试其它安全对象和页面骨架。
+        // Abandon only the failing Map so other safe objects and page-shell fallbacks remain available.
       }
     }
 
-    for (const key of Object.keys(value).slice(0, routeScopeObjectKeys)) {
+    let objectKeys = [];
+    try {
+      // 这一段安全读取自有键，避免跨域 WindowProxy 或自定义 ownKeys trap 中断扫描。
+      // Read own keys safely so a cross-origin WindowProxy or custom ownKeys trap cannot abort scanning.
+      objectKeys = Object.keys(value).slice(0, routeScopeObjectKeys);
+    } catch {
+      return "";
+    }
+    for (const key of objectKeys) {
       let child = null;
       try {
         child = value[key];
@@ -354,12 +385,12 @@
   }
 
   function sidebarThreadId() {
-    // 这一段从当前高亮侧边栏行读取线程 id，避免用多语言标题或正文推断当前对话。
-    // Read the active thread id from the highlighted sidebar row, avoiding localized titles or message text.
+    // 这一段从当前高亮侧边栏行读取正式线程 id，并跳过尚未映射服务端 UUID 的临时新会话 id。
+    // Read the canonical thread id from the highlighted sidebar row while skipping temporary new-thread ids not yet mapped to a server UUID.
     const rows = Array.from(document.querySelectorAll(sidebarThreadSelector));
     for (const row of rows) {
       const sessionId = sessionIdFromRow(row);
-      if (sessionId && isCurrentThreadRow(row, sessionId)) return sessionId;
+      if (sessionId && !isProvisionalThreadId(sessionId) && isCurrentThreadRow(row, sessionId)) return sessionId;
     }
     return "";
   }

@@ -82,16 +82,82 @@ function createPropsTrapHost() {
   return host;
 }
 
+// 这一段构造 route scope 结构访问会抛错的 host，模拟 React 父链里遇到跨域 Window 等受保护对象。
+// Build a host whose route-scope structure access throws, simulating protected objects such as cross-origin Windows in the React parent chain.
+function createRouteScopeTrapHost() {
+  const host = createElement();
+  const routeScopeTrap = new Proxy({}, {
+    get(target, property, receiver) {
+      // 这一段模拟 route scope 结构属性受保护，验证初始结构探测处于安全边界内。
+      // Simulate a protected route-scope property so the initial structure probe stays inside a safety boundary.
+      if (property === "get") throw new Error("route scope properties should be read inside a safety boundary");
+      return Reflect.get(target, property, receiver);
+    },
+    getPrototypeOf() {
+      // 这一段模拟 instanceof 触发的受保护原型读取，验证扫描会继续到页面骨架。
+      // Simulate protected prototype access from instanceof so scanning must continue to the page shell.
+      throw new Error("route scope prototype should be read inside a safety boundary");
+    },
+    ownKeys() {
+      // 这一段模拟 Object.keys 触发的受保护键读取，验证扫描会跳过当前对象。
+      // Simulate protected key enumeration from Object.keys so scanning must skip the current object.
+      throw new Error("route scope keys should be read inside a safety boundary");
+    },
+  });
+  Object.defineProperty(host, "__reactFiber$routeScopeTrap", {
+    configurable: true,
+    value: {
+      dependencies: null,
+      memoizedProps: null,
+      memoizedState: { routeScopeTrap },
+      pendingProps: null,
+      return: null,
+      updateQueue: null,
+    },
+  });
+  return host;
+}
+
+// 这一段构造 instanceof Map 成功但迭代器读取失败的 host，单独覆盖代理 Map 的迭代安全边界。
+// Build a host that passes instanceof Map but fails iterator access, covering the proxied-Map iteration boundary independently.
+function createMapIterationTrapHost() {
+  const host = createElement();
+  const mapIterationTrap = new Proxy(new Map(), {
+    get(target, property, receiver) {
+      // 这一段只阻断 Map 迭代器，其它结构读取保持正常，让测试准确进入 Map 迭代分支。
+      // Block only the Map iterator while keeping other structure reads normal so the test reaches the Map iteration branch.
+      if (property === Symbol.iterator) throw new Error("map iteration should be read inside a safety boundary");
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  Object.defineProperty(host, "__reactFiber$mapIterationTrap", {
+    configurable: true,
+    value: {
+      dependencies: null,
+      memoizedProps: null,
+      memoizedState: { mapIterationTrap },
+      pendingProps: null,
+      return: null,
+      updateQueue: null,
+    },
+  });
+  return host;
+}
+
 // 这一段在隔离 VM 中加载 usage-api，并用可控 document/window 模拟侧栏和 route scope 场景。
 // Load usage-api in an isolated VM and simulate sidebar plus route-scope scenarios with controlled document/window objects.
 function loadUsageApi({
+  anchorMapIterationTrap = false,
   anchorPropsTrap = false,
+  anchorRouteScopeTrap = false,
   anchorRouteThreadId = "",
   fallbackRouteThreadId = "",
   sidebarRows = [],
 } = {}) {
   const anchorHosts = anchorRouteThreadId ? [createRouteHost(anchorRouteThreadId)] : [];
+  if (anchorMapIterationTrap) anchorHosts.push(createMapIterationTrapHost());
   if (anchorPropsTrap) anchorHosts.push(createPropsTrapHost());
+  if (anchorRouteScopeTrap) anchorHosts.push(createRouteScopeTrapHost());
   const fallbackHosts = fallbackRouteThreadId ? [createRouteHost(fallbackRouteThreadId)] : [];
   const context = {
     console,
@@ -201,6 +267,28 @@ assert.equal(
   "usage panel should not read React props while probing header anchors",
 );
 
+const routeScopeTrapUsagePanel = loadUsageApi({
+  anchorRouteScopeTrap: true,
+  fallbackRouteThreadId: "thread-fallback-1234",
+});
+rememberTokenUsage(routeScopeTrapUsagePanel, "thread-fallback-1234", 46);
+assert.equal(
+  routeScopeTrapUsagePanel.api.readConversationTokenUsage()?.total.outputTokens,
+  46,
+  "usage panel should skip protected route-scope objects and continue to the page-shell fallback",
+);
+
+const mapIterationTrapUsagePanel = loadUsageApi({
+  anchorMapIterationTrap: true,
+  fallbackRouteThreadId: "thread-fallback-1234",
+});
+rememberTokenUsage(mapIterationTrapUsagePanel, "thread-fallback-1234", 48);
+assert.equal(
+  mapIterationTrapUsagePanel.api.readConversationTokenUsage()?.total.outputTokens,
+  48,
+  "usage panel should skip a proxied Map with a failing iterator and continue to the page-shell fallback",
+);
+
 const sidebarRow = createElement({
   "aria-current": "page",
   "data-app-action-sidebar-thread-id": "remote:thread-sidebar-1234",
@@ -215,6 +303,22 @@ assert.equal(
   sidebarPriorityUsagePanel.api.readConversationTokenUsage()?.total.outputTokens,
   99,
   "usage panel should keep the highlighted structured sidebar id as the first current-thread source",
+);
+
+const provisionalSidebarRow = createElement({
+  "aria-current": "page",
+  "data-app-action-sidebar-thread-id": "local:client-new-thread:temporary-1234",
+});
+const provisionalSidebarUsagePanel = loadUsageApi({
+  anchorRouteThreadId: "thread-route-1234",
+  sidebarRows: [provisionalSidebarRow],
+});
+rememberTokenUsage(provisionalSidebarUsagePanel, "client-new-thread:temporary-1234", 100);
+rememberTokenUsage(provisionalSidebarUsagePanel, "thread-route-1234", 47);
+assert.equal(
+  provisionalSidebarUsagePanel.api.readConversationTokenUsage()?.total.outputTokens,
+  47,
+  "usage panel should ignore a provisional client-new-thread sidebar id and read the canonical route-scope cache",
 );
 
 assert.match(
