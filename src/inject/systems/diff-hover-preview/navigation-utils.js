@@ -195,20 +195,23 @@
     // 这一段识别官方 route scope 对象，只接受当前对话的 local/remote thread scope。
     // Identify official route scope objects and accept only the current local/remote thread scope.
     if (!value || typeof value !== "object") return false;
-    if (typeof value.get !== "function" || typeof value.set !== "function") return false;
-    if (!value.node || !value.chain) return false;
+
+    // 这一段把 React 内部对象视为不可信输入，跳过跨域 Window 等禁止读取属性的对象。
+    // Treat React internals as untrusted input and skip cross-origin Windows or other property-blocking objects.
     try {
+      if (typeof value.get !== "function" || typeof value.set !== "function") return false;
+      if (!value.node || !value.chain) return false;
       if (!value.queryClient) return false;
+      const route = value.value;
+      if (!route || typeof route !== "object") return false;
+      if (route.routeKind !== "local-thread" && route.routeKind !== "remote-thread") return false;
+      const expectedConversationId = String(summary?.conversationId || "");
+      const routeConversationId = String(route.conversationId || "");
+      if (expectedConversationId) return routeConversationId === expectedConversationId;
+      return options.allowMissingConversationId === true;
     } catch {
       return false;
     }
-    const route = value.value;
-    if (!route || typeof route !== "object") return false;
-    if (route.routeKind !== "local-thread" && route.routeKind !== "remote-thread") return false;
-    const expectedConversationId = String(summary?.conversationId || "");
-    const routeConversationId = String(route.conversationId || "");
-    if (expectedConversationId) return routeConversationId === expectedConversationId;
-    return options.allowMissingConversationId === true;
   }
 
   function findWorkspaceRouteScope(anchor, summary = {}, options = {}) {
@@ -234,19 +237,40 @@
       if (isWorkspaceRouteScope(value, summary, scanOptions)) return value;
       if (typeof value !== "object") return null;
 
-      if (value instanceof Map && depth < 4) {
-        let index = 0;
-        for (const [key, child] of value) {
-          const keyScope = scanObject(key, depth + 1, scanOptions);
-          if (keyScope) return keyScope;
-          const childScope = scanObject(child, depth + 1, scanOptions);
-          if (childScope) return childScope;
-          index += 1;
-          if (index >= maxRouteScopeObjectKeys) break;
+      // 这一段安全识别和遍历 Map，避免 Proxy 的 getPrototypeOf 或 iterator 陷阱中断整个扫描。
+      // Detect and iterate Maps safely so Proxy getPrototypeOf or iterator traps cannot abort the whole scan.
+      let isMap = false;
+      try {
+        isMap = value instanceof Map;
+      } catch {
+        isMap = false;
+      }
+      if (isMap && depth < 4) {
+        try {
+          let index = 0;
+          for (const [key, child] of value) {
+            const keyScope = scanObject(key, depth + 1, scanOptions);
+            if (keyScope) return keyScope;
+            const childScope = scanObject(child, depth + 1, scanOptions);
+            if (childScope) return childScope;
+            index += 1;
+            if (index >= maxRouteScopeObjectKeys) break;
+          }
+        } catch {
+          // 这一段忽略不可遍历的伪 Map，继续尝试普通对象键。
+          // Ignore non-iterable Map-like proxies and continue with ordinary object keys.
         }
       }
 
-      for (const key of Object.keys(value).slice(0, maxRouteScopeObjectKeys)) {
+      // 这一段安全枚举候选对象；跨域 Window 或 Proxy 拒绝 ownKeys 时只跳过该分支。
+      // Enumerate candidates safely; skip only this branch when a cross-origin Window or Proxy blocks ownKeys.
+      let objectKeys = [];
+      try {
+        objectKeys = Object.keys(value).slice(0, maxRouteScopeObjectKeys);
+      } catch {
+        return null;
+      }
+      for (const key of objectKeys) {
         let child = null;
         try {
           child = value[key];

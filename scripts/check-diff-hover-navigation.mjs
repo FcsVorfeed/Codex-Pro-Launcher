@@ -126,11 +126,48 @@ const unrelatedScope = {
 };
 const anchorWithoutScope = { name: "environment-anchor" };
 const anchorWithOwnScope = { name: "thread-anchor" };
+const anchorWithBlockedFrame = { name: "cross-origin-frame-anchor" };
 const fallbackHostWithScope = { name: "file-tree-host" };
 const fallbackHostWithOtherThread = { name: "other-thread-host" };
+const blockedFrameWindow = new Proxy({}, {
+  // 这一段模拟跨域 Window：命名属性和 ownKeys 都会被浏览器安全边界拒绝。
+  // Simulate a cross-origin Window whose named properties and ownKeys are blocked by the browser security boundary.
+  get() {
+    throw new Error("Blocked a frame from accessing a cross-origin frame.");
+  },
+  ownKeys() {
+    throw new Error("Blocked a frame from enumerating a cross-origin frame.");
+  },
+});
+const blockedRouteScope = {
+  chain: [],
+  get() {},
+  node: {},
+  queryClient: {},
+  set() {},
+  value: new Proxy({}, {
+    // 这一段模拟 route 对象自身属性被安全边界拒绝。
+    // Simulate the security boundary blocking properties on the route object itself.
+    get() {
+      throw new Error("Route property access blocked.");
+    },
+  }),
+};
+const blockedPrototypeObject = new Proxy({}, {
+  // 这一段模拟 instanceof 触发 Proxy getPrototypeOf 陷阱。
+  // Simulate instanceof triggering a Proxy getPrototypeOf trap.
+  getPrototypeOf() {
+    throw new Error("Prototype access blocked.");
+  },
+});
 const fibersByHost = new Map([
   [anchorWithoutScope, { memoizedProps: { label: "Changes" } }],
   [anchorWithOwnScope, { memoizedState: { routeScope: expectedScope } }],
+  [anchorWithBlockedFrame, {
+    dependencies: blockedPrototypeObject,
+    memoizedState: blockedFrameWindow,
+    updateQueue: blockedRouteScope,
+  }],
   [fallbackHostWithScope, { memoizedState: { routeScope: expectedScope } }],
   [fallbackHostWithOtherThread, { memoizedState: { routeScope: unrelatedScope } }],
 ]);
@@ -156,6 +193,16 @@ const ownScopeWithoutConversation = navigation.findWorkspaceRouteScope(anchorWit
 assert(
   ownScopeWithoutConversation === expectedScope,
   "findWorkspaceRouteScope should still accept a scope found on the anchor without fallback conversation metadata",
+);
+const scopeAfterBlockedFrame = navigation.findWorkspaceRouteScope(anchorWithBlockedFrame, {
+  conversationId: "conversation-with-scope",
+}, {
+  getFallbackHosts: () => [fallbackHostWithScope],
+  getReactFiber: (host) => fibersByHost.get(host) || null,
+});
+assert(
+  scopeAfterBlockedFrame === expectedScope,
+  "findWorkspaceRouteScope should skip blocked cross-origin objects and continue to a valid fallback scope",
 );
 
 const previewPlacement = navigation.getPreviewNavigationPlacement(

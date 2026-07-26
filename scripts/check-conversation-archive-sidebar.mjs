@@ -98,10 +98,91 @@ assert(
 assert(
   /function isWorkspaceFileOpener\(candidate\)/u.test(source) &&
     /function getWorkspaceFileOpener\(module\)/u.test(source) &&
-    /\[module\?\.t, module\?\.n\]/u.test(source) &&
+    /\[module\?\.t, module\?\.n, module\?\.cX\]/u.test(source) &&
     /source\.includes\("openInSidePanel"\)/u.test(source) &&
-    /Object\.keys\(module \|\| \{\}\)/u.test(source),
+    /source\.includes\("mutate"\)/u.test(source) &&
+    /Object\.keys\(module \|\| \{\}\)\.slice\(0, workspaceFileModuleExportScanLimit\)/u.test(source),
   "conversation archive should tolerate Codex open-workspace-file export-name drift",
+);
+assert(
+  /const workspaceFileModulePattern = \/\(\?:assets\\\/\)\?\(\?:app-initial\|open-workspace-file\)-/u.test(source) &&
+    /const workspaceFileModuleExportScanLimit = 6000;/u.test(source),
+  "conversation archive should discover both legacy open-workspace-file chunks and the bundled app-initial opener",
+);
+const openerDetectorSource = extractFunctionSource(source, "function isWorkspaceFileOpener(candidate)");
+const openerResolverSource = extractFunctionSource(source, "function getWorkspaceFileOpener(module)");
+const resolveWorkspaceFileOpener = new Function(
+  `${openerDetectorSource}
+  const workspaceFileModuleExportScanLimit = 6000;
+  ${openerResolverSource}
+  return getWorkspaceFileOpener;`,
+)();
+const bundledWorkspaceFileOpener = function bundledWorkspaceFileOpener({
+  hostId,
+  openInSidePanel,
+  path,
+  scope,
+}) {
+  const mutation = scope.get("workspace-file-opener").mutate;
+  return mutation({ hostId, openInSidePanel, path });
+};
+assert(
+  resolveWorkspaceFileOpener({ cX: bundledWorkspaceFileOpener }) === bundledWorkspaceFileOpener,
+  "conversation archive should recognize the current app-initial bundled workspace opener contract",
+);
+const unrelatedBundledFunction = function unrelatedBundledFunction({
+  hostId,
+  openInSidePanel,
+  path,
+  scope,
+}) {
+  return { hostId, openInSidePanel, path, scope };
+};
+assert(
+  resolveWorkspaceFileOpener({ cX: unrelatedBundledFunction }) === null,
+  "conversation archive should reject unrelated bundled functions that only share opener parameter names",
+);
+const localScopeMatcherSource = extractFunctionSource(source, "function isConversationArchiveRouteScope(value)");
+const localScopeScannerSource = extractFunctionSource(source, "function scanConversationArchiveRouteScope(value, seenObjects, depth = 0)");
+const scanLocalConversationArchiveScope = new Function(
+  `const routeScopeObjectDepth = 8;
+  const routeScopeObjectKeys = 80;
+  ${localScopeMatcherSource}
+  ${localScopeScannerSource}
+  return (value) => scanConversationArchiveRouteScope(value, new WeakSet());`,
+)();
+const expectedLocalScope = {
+  chain: [],
+  get() {},
+  node: {},
+  queryClient: {},
+  set() {},
+  value: { routeKind: "home" },
+};
+const blockedLocalRouteScope = {
+  chain: [],
+  get() {},
+  node: {},
+  queryClient: {},
+  set() {},
+  value: new Proxy({}, {
+    get() {
+      throw new Error("Route property access blocked.");
+    },
+  }),
+};
+const blockedLocalPrototype = new Proxy({}, {
+  getPrototypeOf() {
+    throw new Error("Prototype access blocked.");
+  },
+});
+assert(
+  scanLocalConversationArchiveScope({
+    blockedLocalPrototype,
+    blockedLocalRouteScope,
+    expectedLocalScope,
+  }) === expectedLocalScope,
+  "conversation archive fallback scope scanning should skip blocked route and prototype access",
 );
 assert(
   /isPreview: true/u.test(openFunctionSource) &&

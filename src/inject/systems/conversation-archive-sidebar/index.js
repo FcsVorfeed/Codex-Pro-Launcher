@@ -11,11 +11,12 @@
   const previewFileTreeHiddenAttribute = "data-codex-pro-conversation-archive-file-tree-hidden";
   const conversationArchiveStatusEventName = "codex-pro:conversation-archive-status";
   const conversationArchiveThreadDragDataType = "application/x-codex-pro-conversation-archive-thread";
-  const workspaceFileModulePattern = /(?:assets\/)?open-workspace-file-[A-Za-z0-9_-]+\.js/u;
+  const workspaceFileModulePattern = /(?:assets\/)?(?:app-initial|open-workspace-file)-[A-Za-z0-9_-]+\.js/u;
   const workspaceFileModuleFallbackPaths = [
     "./assets/open-workspace-file-CJcJ-CWR.js",
     "./assets/open-workspace-file-CQYIHLHN.js",
   ];
+  const workspaceFileModuleExportScanLimit = 6000;
   const conversationArchiveAttachmentPointerThresholdPx = 8;
   const refreshDelayMs = 250;
   const pendingDeleteRefreshDelayMs = 3000;
@@ -862,22 +863,25 @@
     } catch {
       return false;
     }
-    return source.includes("openInSidePanel") &&
-      source.includes("openFile") &&
+    const hasSharedContract = source.includes("openInSidePanel") &&
+      source.includes("hostId") &&
       source.includes("path") &&
       source.includes("scope");
+    const hasLegacyContract = source.includes("openFile");
+    const hasBundledContract = source.includes(".get(") && source.includes("mutate");
+    return hasSharedContract && (hasLegacyContract || hasBundledContract);
   }
 
   function getWorkspaceFileOpener(module) {
-    // 这一段优先尝试已知导出名：旧版 Codex 是 t，2026-06-26 更新后是 n。
-    // Prefer known export names: older Codex used t, while the 2026-06-26 update uses n.
-    for (const candidate of [module?.t, module?.n]) {
+    // 这一段优先尝试已知导出名：旧独立 chunk 使用 t/n，当前 app-initial bundle 使用 cX。
+    // Prefer known export names: old standalone chunks use t/n, while the current app-initial bundle uses cX.
+    for (const candidate of [module?.t, module?.n, module?.cX]) {
       if (isWorkspaceFileOpener(candidate)) return candidate;
     }
 
     // 这一段有界扫描模块导出，避免之后官方再改短导出名时直接失效。
     // Bounded-scan module exports so future short export-name changes do not immediately break opening.
-    for (const key of Object.keys(module || {})) {
+    for (const key of Object.keys(module || {}).slice(0, workspaceFileModuleExportScanLimit)) {
       let candidate = null;
       try {
         candidate = module[key];
@@ -957,14 +961,18 @@
     // 这一段识别 Codex route scope；新对话和首页态也可用来唤醒右侧预览。
     // Identify a Codex route scope; new-thread and home states can also wake the right preview.
     if (!value || typeof value !== "object") return false;
-    if (typeof value.get !== "function" || typeof value.set !== "function") return false;
-    if (!value.node || !value.chain) return false;
+    let routeKind = "";
+
+    // 这一段安全读取 React 内部对象，跨域 Window 禁止访问命名属性时直接跳过。
+    // Read React internals safely and skip cross-origin Windows whose named properties are blocked.
     try {
+      if (typeof value.get !== "function" || typeof value.set !== "function") return false;
+      if (!value.node || !value.chain) return false;
       if (!value.queryClient) return false;
+      routeKind = String(value.value?.routeKind || "");
     } catch {
       return false;
     }
-    const routeKind = String(value.value?.routeKind || "");
     return ["home", "local-thread", "new-thread-panel", "other", "remote-thread"].includes(routeKind);
   }
 
@@ -979,18 +987,39 @@
     }
     if (isConversationArchiveRouteScope(value)) return value;
     if (typeof value !== "object") return null;
-    if (value instanceof Map && depth < 4) {
-      let entryCount = 0;
-      for (const [key, child] of value) {
-        const keyScope = scanConversationArchiveRouteScope(key, seenObjects, depth + 1);
-        if (keyScope) return keyScope;
-        const childScope = scanConversationArchiveRouteScope(child, seenObjects, depth + 1);
-        if (childScope) return childScope;
-        entryCount += 1;
-        if (entryCount >= routeScopeObjectKeys) break;
+    // 这一段安全识别和遍历 Map，避免 Proxy 的 getPrototypeOf 或 iterator 陷阱中断备用扫描。
+    // Detect and iterate Maps safely so Proxy getPrototypeOf or iterator traps cannot abort fallback scanning.
+    let isMap = false;
+    try {
+      isMap = value instanceof Map;
+    } catch {
+      isMap = false;
+    }
+    if (isMap && depth < 4) {
+      try {
+        let entryCount = 0;
+        for (const [key, child] of value) {
+          const keyScope = scanConversationArchiveRouteScope(key, seenObjects, depth + 1);
+          if (keyScope) return keyScope;
+          const childScope = scanConversationArchiveRouteScope(child, seenObjects, depth + 1);
+          if (childScope) return childScope;
+          entryCount += 1;
+          if (entryCount >= routeScopeObjectKeys) break;
+        }
+      } catch {
+        // 这一段忽略不可遍历的伪 Map，继续尝试普通对象键。
+        // Ignore non-iterable Map-like proxies and continue with ordinary object keys.
       }
     }
-    for (const key of Object.keys(value).slice(0, routeScopeObjectKeys)) {
+    // 这一段安全枚举备用 scope 候选，ownKeys 被跨域安全边界拒绝时只跳过当前分支。
+    // Enumerate fallback scope candidates safely and skip only this branch when ownKeys is blocked.
+    let objectKeys = [];
+    try {
+      objectKeys = Object.keys(value).slice(0, routeScopeObjectKeys);
+    } catch {
+      return null;
+    }
+    for (const key of objectKeys) {
       let child = null;
       try {
         child = value[key];
