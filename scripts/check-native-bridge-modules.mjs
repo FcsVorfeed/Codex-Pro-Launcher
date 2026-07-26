@@ -8,6 +8,7 @@ const mainPath = path.join(rootDir, "src", "launcher", "native-bridge.mjs");
 const launcherMainPath = path.join(rootDir, "src", "launcher", "main.mjs");
 const injectionPath = path.join(rootDir, "src", "launcher", "injection.mjs");
 const overlayInjectionPath = path.join(rootDir, "src", "launcher", "pet-event-sound-overlay-injection.mjs");
+const petEventSoundRuntimePath = path.join(rootDir, "src", "inject", "systems", "pet-event-sounds", "index.js");
 const nativeBridgeCorePath = path.join(rootDir, "src", "inject", "core", "native-bridge.js");
 const commonPath = path.join(rootDir, "src", "launcher", "native-bridge", "common.mjs");
 const routerPath = path.join(rootDir, "src", "launcher", "native-bridge", "router.mjs");
@@ -93,6 +94,7 @@ await Promise.all([
   assertFileExists(routerPath),
   assertFileExists(workerCleanupPath),
   assertFileExists(overlayInjectionPath),
+  assertFileExists(petEventSoundRuntimePath),
   assertFileExists(diffHoverPreviewPath),
   assertFileExists(mouseGesturesPath),
   assertFileExists(todayTokenUsagePath),
@@ -124,6 +126,7 @@ const [
   launcherMainSource,
   injectionSource,
   overlayInjectionSource,
+  petEventSoundRuntimeSource,
   nativeBridgeCoreSource,
   routerSource,
   workerCleanupSource,
@@ -156,6 +159,7 @@ const [
   readFile(launcherMainPath, "utf8"),
   readFile(injectionPath, "utf8"),
   readFile(overlayInjectionPath, "utf8"),
+  readFile(petEventSoundRuntimePath, "utf8"),
   readFile(nativeBridgeCorePath, "utf8"),
   readFile(routerPath, "utf8"),
   readFile(workerCleanupPath, "utf8"),
@@ -188,8 +192,8 @@ const conversationArchiveSource = (await Promise.all(
   rustConversationArchivePaths.map((filePath) => readFile(filePath, "utf8")),
 )).join("\n");
 
-assertIncludes(mainSource, "const nativeBridgeProtocolVersion = 74", "native bridge protocol version bump");
-assertIncludes(rustProtocolSource, "NATIVE_BRIDGE_PROTOCOL_VERSION: u32 = 74", "Rust native bridge protocol version bump");
+assertIncludes(mainSource, "const nativeBridgeProtocolVersion = 75", "native bridge protocol version bump");
+assertIncludes(rustProtocolSource, "NATIVE_BRIDGE_PROTOCOL_VERSION: u32 = 75", "Rust native bridge protocol version bump");
 assertIncludes(mainSource, "protocolVersion === nativeBridgeProtocolVersion", "native bridge reusable worker version gate");
 assertIncludes(mainSource, "startPetEventSoundOverlayTargetWatcher", "native bridge worker overlay watcher import");
 assertIncludes(mainSource, "disabledSystems", "native bridge worker preserves disabled system list");
@@ -228,7 +232,12 @@ assertIncludes(nativeBridgeCoreSource, "resolvePetEventSoundStateId", "pet event
 assertIncludes(nativeBridgeCoreSource, "params?.stateId", "pet event sound bridge should expose state id requests instead of raw paths");
 assertIncludes(nativeBridgeCoreSource, 'send("pet-event-sound", { requestId, stateId })', "pet event sound bridge should send only state ids to native");
 assertIncludes(nativeBridgeCoreSource, "protocolVersion >= 70", "pet event sound bridge protocol gate");
-assertIncludes(overlayInjectionSource, "main-window-playback-v1", "pet overlay watcher should require the main-window playback runtime marker");
+assertIncludes(overlayInjectionSource, "structured-task-events-v2", "pet overlay watcher should require the structured task event runtime marker");
+assertIncludes(petEventSoundRuntimeSource, '"mcp-notification"', "pet sound runtime official task notification listener");
+assertIncludes(petEventSoundRuntimeSource, '"mcp-request"', "pet sound runtime official waiting request listener");
+assertIncludes(petEventSoundRuntimeSource, '"thread/status/changed"', "pet sound runtime official thread status listener");
+assertIncludes(petEventSoundRuntimeSource, '"waitingOnApproval"', "pet sound runtime official approval wait status");
+assertIncludes(petEventSoundRuntimeSource, "observedRoot?.isConnected", "pet sound runtime avatar root replacement guard");
 assertIncludes(routerSource, '"today-token-usage"', "Today token usage router registration");
 assertIncludes(routerSource, '"pet-event-sound"', "pet event sound router registration");
 assertIncludes(routerSource, '"codex-sqlite-log-blocker"', "Codex SQLite log blocker router registration");
@@ -490,7 +499,8 @@ assertIncludes(rustWorkerSource, "PET_EVENT_SOUND_OVERLAY_SCAN_INTERVAL_MS", "Ru
 assertIncludes(rustWorkerSource, "scan_pet_event_sound_overlay_targets", "Rust worker pet overlay watcher");
 assertIncludes(rustWorkerSource, "read_pet_event_sound_overlay_script", "Rust worker reads pet overlay script");
 assertIncludes(rustWorkerSource, "disabledSystems", "Rust worker payload preserves disabled system list");
-assertIncludes(rustWorkerSource, "main-window-playback-v1", "Rust worker should replace old overlay playback runtimes");
+assertIncludes(rustWorkerSource, "structured-task-events-v2", "Rust worker should require the structured task event runtime marker");
+assertNotIncludes(rustWorkerSource, "main-window-playback-v1", "stale Rust pet overlay runtime marker");
 assertNotIncludes(rustWorkerSource, "injected_overlay_target_ids", "Rust target-id cached pet overlay watcher");
 assertIncludes(rustWorkerSource, "dev-runtime", "Rust worker uses dev-runtime copy directory");
 assertIncludes(rustWorkerSource, "prepare_dev_worker_executable", "Rust worker prepares a dev exe copy");

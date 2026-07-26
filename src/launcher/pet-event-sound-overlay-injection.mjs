@@ -11,6 +11,7 @@ import { readLocalConfig } from "./local-config.mjs";
 import { rootDir } from "./paths.mjs";
 
 const petEventSoundOverlayScanIntervalMs = 1500;
+const petEventSoundOverlayMode = "structured-task-events-v2";
 
 export async function readPetEventSoundOverlayScript(disabledSystems) {
   // 这一段读取宠物浮窗最小注入模块；禁用系统时返回空字符串。
@@ -54,7 +55,7 @@ async function hasPetEventSoundOverlayRuntime(client) {
       (() => Boolean(
         window.__codexProRuntime?.systems?.some((system) => system?.name === "pet-event-sounds") &&
         window.__codexProRuntime?.systemStates?.["pet-event-sounds"]?.started === true &&
-        window.__codexProPetEventSoundsOverlayMode === "main-window-playback-v1"
+        window.__codexProPetEventSoundsOverlayMode === ${JSON.stringify(petEventSoundOverlayMode)}
       ))()
     `,
     returnByValue: true,

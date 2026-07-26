@@ -5,8 +5,20 @@
   const channelName = "codex-pro:pet-event-sounds:v1";
   const settingsStorageKey = "codex-pro:settings";
   const avatarStateSelector = ".codex-avatar-root[data-avatar-state]";
-  const overlayPlaybackMode = "main-window-playback-v1";
+  const overlayPlaybackMode = "structured-task-events-v2";
   const defaultSoundVolume = 100;
+  const structuredDomEchoWindowMs = 1500;
+  const maxTrackedTaskStates = 200;
+  const waitingRequestMethods = new Set([
+    "item/commandExecution/requestApproval",
+    "item/fileChange/requestApproval",
+    "item/permissions/requestApproval",
+    "item/plan/requestImplementation",
+    "item/tool/requestOptionPicker",
+    "item/tool/requestSetupCodexContextPicker",
+    "item/tool/requestUserInput",
+    "mcpServer/elicitation/request",
+  ]);
 
   function getSettingsApi() {
     // 这一段延迟读取设置 API，让主窗口和宠物浮窗复用同一个模块。
@@ -47,6 +59,30 @@
     } catch {
       return null;
     }
+  }
+
+  function createDiagnostics(role) {
+    // 这一段只记录不含任务 ID 和文件路径的运行诊断，方便区分“没收到事件”和“播放失败”。
+    // Record only path-free and task-id-free runtime diagnostics so missing events and playback failures are distinguishable.
+    return {
+      avatarRootAttached: false,
+      lastError: "",
+      lastEventAtMs: 0,
+      lastEventKind: "",
+      lastPlaybackAtMs: 0,
+      lastPlaybackResult: "",
+      lastStateId: "",
+      role,
+      startedAtMs: Date.now(),
+      structuredEventCount: 0,
+    };
+  }
+
+  function updateDiagnostics(diagnostics, patch) {
+    // 这一段集中更新诊断快照，避免把内部可变对象直接暴露给调用方。
+    // Update the diagnostic snapshot centrally so callers do not receive the mutable internal object.
+    if (!diagnostics || !patch || typeof patch !== "object") return;
+    Object.assign(diagnostics, patch);
   }
 
   async function requestConfiguredSoundData(stateId) {
@@ -98,14 +134,20 @@
   function startMainCoordinator(signal) {
     // 这一段在主窗口提供设置页试听，并接收浮窗的音频读取请求。
     // In the main window, provide settings-page preview and receive overlay audio-load requests.
-    const playbackRuntime = createAudioPlaybackRuntime(signal, requestConfiguredSoundData);
+    const diagnostics = createDiagnostics("main");
+    window.__codexProPetEventSoundsDiagnostics = diagnostics;
+    const playbackRuntime = createAudioPlaybackRuntime(signal, requestConfiguredSoundData, diagnostics);
     const petEventSoundsModule = runtime.systemModules.petEventSounds ??= {};
-    petEventSoundsModule.previewState = (stateId, options = {}) => {
+    const previewState = (stateId, options = {}) => {
       playbackRuntime.clearCache();
       return playbackRuntime.playState(stateId, { ignoreCooldown: true, volume: options.volume });
     };
+    const getDiagnostics = () => ({ ...diagnostics });
+    petEventSoundsModule.previewState = previewState;
+    petEventSoundsModule.getDiagnostics = getDiagnostics;
     signal.addEventListener("abort", () => {
-      if (petEventSoundsModule.previewState) delete petEventSoundsModule.previewState;
+      if (petEventSoundsModule.previewState === previewState) delete petEventSoundsModule.previewState;
+      if (petEventSoundsModule.getDiagnostics === getDiagnostics) delete petEventSoundsModule.getDiagnostics;
     }, { once: true });
 
     // 这一段只在支持 BroadcastChannel 时桥接宠物浮窗，设置页试听不依赖这个通道。
@@ -126,7 +168,17 @@
       if (message.kind === "play-state") {
         // 这一段让主窗口承担真实播放，避开宠物小窗未聚焦时 WebAudio 被用户手势策略拦截的问题。
         // Let the main window perform playback so the avatar overlay is not blocked by user-activation audio policy.
-        playbackRuntime.playState(stateId).catch(() => {});
+        updateDiagnostics(diagnostics, {
+          lastEventAtMs: Date.now(),
+          lastEventKind: normalizeText(message.triggerSource, 80) || "avatar",
+          lastStateId: stateId,
+        });
+        playbackRuntime.playState(stateId).catch((error) => {
+          updateDiagnostics(diagnostics, {
+            lastError: normalizeText(error?.message, 300) || "playback-error",
+            lastPlaybackResult: "error",
+          });
+        });
         return;
       }
       if (message.kind !== "load-sound" || !requestId) return;
@@ -164,7 +216,7 @@
     return bytes.buffer;
   }
 
-  function createAudioPlaybackRuntime(signal, requestSoundData) {
+  function createAudioPlaybackRuntime(signal, requestSoundData, diagnostics) {
     // 这一段建立共享音频播放运行态，让主窗口试听和浮窗事件播放复用缓存、冷却和音量逻辑。
     // Build a shared playback runtime so main-window preview and overlay event playback reuse cache, cooldown, and volume logic.
     const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
@@ -176,8 +228,21 @@
       // 这一段按需创建 AudioContext，避免未使用音效时提前占用音频资源。
       // Create the AudioContext lazily so unused sound settings do not reserve audio resources.
       if (!AudioContextConstructor || signal.aborted) return null;
+      if (audioContext?.state === "closed") audioContext = null;
       if (!audioContext) audioContext = new AudioContextConstructor();
       return audioContext;
+    }
+
+    function recordPlaybackResult(stateId, result, error = "") {
+      // 这一段保存最后一次播放结果，不记录本机音效路径或任务身份。
+      // Save the latest playback result without recording local sound paths or task identities.
+      updateDiagnostics(diagnostics, {
+        lastError: normalizeText(error, 300),
+        lastPlaybackAtMs: Date.now(),
+        lastPlaybackResult: result,
+        lastStateId: stateId,
+      });
+      return result === "played";
     }
 
     async function loadAudioBuffer(path, stateId) {
@@ -206,37 +271,44 @@
       // 这一段执行实际播放：解析设置、应用冷却、恢复 AudioContext，并用 GainNode 控制音量。
       // Perform playback by resolving settings, applying cooldown, resuming AudioContext, and using a GainNode for volume.
       const normalizedStateId = normalizeConfiguredStateId(getSettingsApi(), stateId);
-      if (!normalizedStateId || signal.aborted) return false;
-      const settings = getSettings();
-      const path = getConfiguredSoundPath(settings, normalizedStateId);
-      if (!path) return false;
-      const volume = getConfiguredSoundVolume(settings, normalizedStateId, options.volume);
-      if (volume <= 0) return false;
-      const cooldownMs = Number(settings.petEventSoundCooldownMs) || 0;
-      const now = Date.now();
-      if (!options.ignoreCooldown && now - (lastPlayedAtByState.get(normalizedStateId) || 0) < cooldownMs) return false;
-      lastPlayedAtByState.set(normalizedStateId, now);
-      const context = getAudioContext();
-      if (!context) return false;
-      const buffer = await loadAudioBuffer(path, normalizedStateId);
-      if (!buffer || signal.aborted) return false;
-      await context.resume?.();
-      const source = context.createBufferSource();
-      const gain = context.createGain();
-      source.buffer = buffer;
-      gain.gain.value = volume / defaultSoundVolume;
-      source.connect(gain);
-      gain.connect(context.destination);
-      source.addEventListener("ended", () => {
-        // 这一段在音效结束后断开节点，避免重复触发时保留无用音频节点。
-        // Disconnect nodes after playback so repeated triggers do not keep unused audio nodes alive.
-        try {
-          source.disconnect();
-          gain.disconnect();
-        } catch {}
-      }, { once: true });
-      source.start();
-      return true;
+      try {
+        if (!normalizedStateId || signal.aborted) return recordPlaybackResult(normalizedStateId, "invalid-state");
+        const settings = getSettings();
+        const path = getConfiguredSoundPath(settings, normalizedStateId);
+        if (!path) return recordPlaybackResult(normalizedStateId, "unconfigured");
+        const volume = getConfiguredSoundVolume(settings, normalizedStateId, options.volume);
+        if (volume <= 0) return recordPlaybackResult(normalizedStateId, "muted");
+        const cooldownMs = Number(settings.petEventSoundCooldownMs) || 0;
+        const now = Date.now();
+        if (!options.ignoreCooldown && now - (lastPlayedAtByState.get(normalizedStateId) || 0) < cooldownMs) {
+          return recordPlaybackResult(normalizedStateId, "cooldown");
+        }
+        lastPlayedAtByState.set(normalizedStateId, now);
+        const context = getAudioContext();
+        if (!context) return recordPlaybackResult(normalizedStateId, "audio-context-unavailable");
+        const buffer = await loadAudioBuffer(path, normalizedStateId);
+        if (!buffer || signal.aborted) return recordPlaybackResult(normalizedStateId, "load-failed");
+        await context.resume?.();
+        if (context.state === "suspended") return recordPlaybackResult(normalizedStateId, "audio-context-suspended");
+        const source = context.createBufferSource();
+        const gain = context.createGain();
+        source.buffer = buffer;
+        gain.gain.value = volume / defaultSoundVolume;
+        source.connect(gain);
+        gain.connect(context.destination);
+        source.addEventListener("ended", () => {
+          // 这一段在音效结束后断开节点，避免重复触发时保留无用音频节点。
+          // Disconnect nodes after playback so repeated triggers do not keep unused audio nodes alive.
+          try {
+            source.disconnect();
+            gain.disconnect();
+          } catch {}
+        }, { once: true });
+        source.start();
+        return recordPlaybackResult(normalizedStateId, "played");
+      } catch (error) {
+        return recordPlaybackResult(normalizedStateId, "error", error?.message || error);
+      }
     }
 
     window.addEventListener("storage", (event) => {
@@ -262,14 +334,19 @@
     };
   }
 
-  function createAvatarAudioRuntime(channel, signal) {
+  function createAvatarAudioRuntime(channel, diagnostics) {
     // 这一段让宠物浮窗只上报状态事件，不在浮窗内创建 AudioContext，避免必须先点击宠物窗口。
     // Let the avatar overlay report state events only and avoid creating an AudioContext inside the unfocused overlay.
     return {
-      handleStateTrigger(stateId) {
+      handleStateTrigger(stateId, triggerSource) {
         // 这一段把状态变化交给主窗口播放；主窗口会重新读取设置并应用冷却和音量。
         // Hand the state change to the main window, which re-reads settings and applies cooldown and volume.
-        channel.postMessage({ kind: "play-state", source: "avatar", stateId });
+        updateDiagnostics(diagnostics, {
+          lastEventAtMs: Date.now(),
+          lastEventKind: triggerSource,
+          lastStateId: stateId,
+        });
+        channel.postMessage({ kind: "play-state", source: "avatar", stateId, triggerSource });
       },
     };
   }
@@ -282,44 +359,215 @@
     return stateIds.includes(stateId) ? stateId : "";
   }
 
+  function getOfficialWindowMessage(event) {
+    // 这一段复用 Codex 当前窗口消息边界：只接受本窗口或 preload 投递的同源结构化消息。
+    // Reuse Codex's current window-message boundary by accepting only same-window or preload-delivered structured messages.
+    const source = event?.source;
+    const currentOrigin = window.location.origin;
+    if (!(source == null || source === window)) return null;
+    if (source === window && currentOrigin && currentOrigin !== "null" && event.origin !== currentOrigin) return null;
+    const message = event?.data;
+    if (!message || typeof message !== "object" || typeof message.type !== "string") return null;
+    return message;
+  }
+
+  function getTaskKey(hostId, threadId) {
+    // 这一段生成仅在内存中使用的任务键；任何诊断输出都不会暴露这个值。
+    // Build an in-memory-only task key; this value is never exposed through diagnostics.
+    const normalizedThreadId = normalizeText(threadId, 160);
+    if (!normalizedThreadId) return "";
+    return `${normalizeText(hostId, 120) || "local"}\n${normalizedThreadId}`;
+  }
+
+  function getThreadStatusStateId(status) {
+    // 这一段按 Codex 官方宠物聚合规则识别运行、等待和系统错误；空闲交给明确的 turn/completed 处理。
+    // Follow Codex's pet aggregation rules for running, waiting, and system errors; leave idle to explicit turn completion.
+    if (!status || typeof status !== "object") return "";
+    if (status.type === "systemError") return "failed";
+    if (status.type !== "active") return "";
+    const activeFlags = Array.isArray(status.activeFlags) ? status.activeFlags : [];
+    return activeFlags.includes("waitingOnUserInput") || activeFlags.includes("waitingOnApproval")
+      ? "waiting"
+      : "running";
+  }
+
+  function getCompletedTurnStateId(turn) {
+    // 这一段把正式 turn/completed 状态映射到现有声音槽位，保持与宠物动画命名兼容。
+    // Map official turn completion statuses to existing sound slots while preserving pet animation names.
+    if (!turn || typeof turn !== "object") return "";
+    if (turn.status === "completed") return "review";
+    if (turn.status === "failed") return "failed";
+    if (turn.status === "interrupted") return "idle";
+    return "";
+  }
+
+  function startOfficialTaskEventObserver(audioRuntime, signal, diagnostics) {
+    // 这一段直接订阅 Codex 正式任务事件，让多个任务各自触发，而不再依赖聚合后的宠物 DOM 是否变化。
+    // Subscribe directly to official Codex task events so every task can trigger independently of aggregate pet DOM changes.
+    const taskStateByKey = new Map();
+    const pendingTaskKeyByRequestId = new Map();
+    let structuredDomEcho = null;
+
+    function rememberTaskState(taskKey, stateId) {
+      // 这一段限制任务状态缓存大小，避免长时间运行时持续保留历史任务。
+      // Bound the task-state cache so long-running sessions do not retain task history indefinitely.
+      if (taskStateByKey.has(taskKey)) taskStateByKey.delete(taskKey);
+      taskStateByKey.set(taskKey, stateId);
+      while (taskStateByKey.size > maxTrackedTaskStates) {
+        taskStateByKey.delete(taskStateByKey.keys().next().value);
+      }
+    }
+
+    function triggerTaskState(taskKey, stateId, eventKind) {
+      // 这一段按任务去重同一状态，避免 thread/status 和 turn 事件为同一变化重复发声。
+      // De-duplicate the same state per task so thread/status and turn events do not announce one transition twice.
+      const normalizedStateId = normalizeAvatarState(stateId, getSettingsApi());
+      if (!taskKey || !normalizedStateId || taskStateByKey.get(taskKey) === normalizedStateId) return;
+      rememberTaskState(taskKey, normalizedStateId);
+      structuredDomEcho = {
+        expiresAtMs: Date.now() + structuredDomEchoWindowMs,
+        stateId: normalizedStateId,
+      };
+      updateDiagnostics(diagnostics, {
+        structuredEventCount: diagnostics.structuredEventCount + 1,
+      });
+      audioRuntime.handleStateTrigger(normalizedStateId, `task:${eventKind}`);
+    }
+
+    function handleServerRequest(message) {
+      // 这一段只把会阻塞任务并等待用户操作的正式请求映射为 waiting。
+      // Map only official server requests that block a task for user action to waiting.
+      const request = message.request;
+      const method = normalizeText(request?.method, 120);
+      if (!waitingRequestMethods.has(method)) return;
+      const taskKey = getTaskKey(message.hostId, request?.params?.threadId);
+      const requestId = normalizeText(request?.id == null ? "" : String(request.id), 120);
+      if (requestId && taskKey) {
+        pendingTaskKeyByRequestId.set(`${normalizeText(message.hostId, 120)}\n${requestId}`, taskKey);
+        while (pendingTaskKeyByRequestId.size > maxTrackedTaskStates) {
+          pendingTaskKeyByRequestId.delete(pendingTaskKeyByRequestId.keys().next().value);
+        }
+      }
+      triggerTaskState(taskKey, "waiting", method);
+    }
+
+    function handleNotification(message) {
+      // 这一段处理当前 Codex 的任务开始、完成、状态和待处理请求恢复通知。
+      // Handle current Codex task start, completion, status, and pending-request resolution notifications.
+      const method = normalizeText(message.method, 120);
+      const params = message.params && typeof message.params === "object" ? message.params : {};
+      const taskKey = getTaskKey(message.hostId, params.threadId ?? params.thread?.id);
+      if (method === "thread/started" || method === "turn/started") {
+        triggerTaskState(taskKey, "running", method);
+        return;
+      }
+      if (method === "turn/completed") {
+        triggerTaskState(taskKey, getCompletedTurnStateId(params.turn), method);
+        return;
+      }
+      if (method === "thread/status/changed") {
+        triggerTaskState(taskKey, getThreadStatusStateId(params.status), method);
+        return;
+      }
+      if (method !== "serverRequest/resolved") return;
+      const requestId = normalizeText(params.requestId == null ? "" : String(params.requestId), 120);
+      const requestKey = `${normalizeText(message.hostId, 120)}\n${requestId}`;
+      const pendingTaskKey = requestId ? pendingTaskKeyByRequestId.get(requestKey) : "";
+      if (!pendingTaskKey) return;
+      pendingTaskKeyByRequestId.delete(requestKey);
+      triggerTaskState(pendingTaskKey, "running", method);
+    }
+
+    function handleWindowMessage(event) {
+      // 这一段只接收 Codex 的两类正式任务消息，其它窗口消息不参与声音判断。
+      // Accept only the two official Codex task message types; other window messages never affect sound decisions.
+      const message = getOfficialWindowMessage(event);
+      if (message?.type === "mcp-request") {
+        handleServerRequest(message);
+      } else if (message?.type === "mcp-notification") {
+        handleNotification(message);
+      }
+    }
+
+    window.addEventListener("message", handleWindowMessage, { signal });
+    return {
+      consumeDomEcho(stateId) {
+        // 这一段吞掉结构化事件随后产生的同状态 DOM 回声，避免用户把冷却设为 0 时双响。
+        // Consume the same-state DOM echo after a structured event so cooldown zero does not produce duplicate sound.
+        if (!structuredDomEcho) return false;
+        if (structuredDomEcho.expiresAtMs < Date.now() || structuredDomEcho.stateId !== stateId) {
+          structuredDomEcho = null;
+          return false;
+        }
+        structuredDomEcho = null;
+        return true;
+      },
+    };
+  }
+
   function startAvatarObserver(signal) {
     // 这一段在宠物浮窗里观察官方 data-avatar-state，并把状态变化交给音频运行态。
     // In the pet overlay, observe the official data-avatar-state and hand state changes to the audio runtime.
     window.__codexProPetEventSoundsOverlayMode = overlayPlaybackMode;
+    const diagnostics = createDiagnostics("avatar-overlay");
+    window.__codexProPetEventSoundsDiagnostics = diagnostics;
     const channel = openBroadcastChannel();
     if (!channel) return;
     signal.addEventListener("abort", () => channel.close(), { once: true });
-    const audioRuntime = createAvatarAudioRuntime(channel, signal);
+    const audioRuntime = createAvatarAudioRuntime(channel, diagnostics);
+    const officialTaskRuntime = startOfficialTaskEventObserver(audioRuntime, signal, diagnostics);
     let stateObserver = null;
     let bodyObserver = null;
+    let observedRoot = null;
     let lastState = "";
 
     function attachAvatarRoot(root) {
       // 这一段绑定当前宠物根节点，初始状态只记录不播放，后续变化才视为事件。
       // Bind the current avatar root; record the initial state without playing, and treat later changes as events.
-      if (!root || stateObserver || signal.aborted) return;
+      if (!root || root === observedRoot || signal.aborted) return;
+      stateObserver?.disconnect();
+      observedRoot = root;
+      updateDiagnostics(diagnostics, { avatarRootAttached: true });
       lastState = normalizeAvatarState(root.getAttribute("data-avatar-state"), getSettingsApi());
       stateObserver = new MutationObserver(() => {
         const nextState = normalizeAvatarState(root.getAttribute("data-avatar-state"), getSettingsApi());
         if (!nextState || nextState === lastState) return;
         lastState = nextState;
-        audioRuntime.handleStateTrigger(nextState);
+        if (officialTaskRuntime.consumeDomEcho(nextState)) return;
+        audioRuntime.handleStateTrigger(nextState, "avatar-dom");
       });
       stateObserver.observe(root, { attributeFilter: ["data-avatar-state"], attributes: true });
-      bodyObserver?.disconnect();
-      signal.addEventListener("abort", () => stateObserver?.disconnect(), { once: true });
     }
 
-    // 这一段优先绑定已有根节点；如果官方浮窗稍后才渲染，再用 body 观察器补绑一次。
-    // Prefer an existing root; if the official overlay renders later, use a body observer to bind once.
-    attachAvatarRoot(document.querySelector(avatarStateSelector));
-    if (!stateObserver) {
-      const observerRoot = document.documentElement || document.body;
-      if (!observerRoot) return;
-      bodyObserver = new MutationObserver(() => attachAvatarRoot(document.querySelector(avatarStateSelector)));
-      bodyObserver.observe(observerRoot, { childList: true, subtree: true });
-      signal.addEventListener("abort", () => bodyObserver?.disconnect(), { once: true });
+    function syncAvatarRoot() {
+      // 这一段持续核对官方宠物根节点，覆盖关闭重开、React 替换节点和页面内重新挂载。
+      // Continuously reconcile the official pet root across close/reopen, React replacement, and in-page remounts.
+      if (observedRoot?.isConnected) return;
+      const nextRoot = document.querySelector(avatarStateSelector);
+      if (nextRoot) {
+        attachAvatarRoot(nextRoot);
+        return;
+      }
+      if (!observedRoot) return;
+      stateObserver?.disconnect();
+      stateObserver = null;
+      observedRoot = null;
+      lastState = "";
+      updateDiagnostics(diagnostics, { avatarRootAttached: false });
     }
+
+    // 这一段始终保留轻量 childList 观察器，用结构变化触发根节点核对，不扫描属性或文本。
+    // Keep a lightweight childList observer and reconcile the root only on structural changes, without scanning attributes or text.
+    const observerRoot = document.documentElement || document.body;
+    syncAvatarRoot();
+    if (observerRoot) {
+      bodyObserver = new MutationObserver(syncAvatarRoot);
+      bodyObserver.observe(observerRoot, { childList: true, subtree: true });
+    }
+    signal.addEventListener("abort", () => {
+      stateObserver?.disconnect();
+      bodyObserver?.disconnect();
+    }, { once: true });
   }
 
   runtime.registerSystem("pet-event-sounds", () => {

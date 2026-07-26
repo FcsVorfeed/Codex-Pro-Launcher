@@ -510,7 +510,7 @@ async fn has_pet_event_sound_overlay_runtime(client: &mut CdpClient) -> anyhow::
 (() => Boolean(
   window.__codexProRuntime?.systems?.some((system) => system?.name === "pet-event-sounds") &&
   window.__codexProRuntime?.systemStates?.["pet-event-sounds"]?.started === true &&
-  window.__codexProPetEventSoundsOverlayMode === "main-window-playback-v1"
+  window.__codexProPetEventSoundsOverlayMode === "structured-task-events-v2"
 ))()
 "#,
                 "returnByValue": true,
