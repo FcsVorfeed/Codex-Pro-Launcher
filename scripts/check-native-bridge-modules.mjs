@@ -237,6 +237,8 @@ assertIncludes(petEventSoundRuntimeSource, '"mcp-notification"', "pet sound runt
 assertIncludes(petEventSoundRuntimeSource, '"mcp-request"', "pet sound runtime official waiting request listener");
 assertIncludes(petEventSoundRuntimeSource, '"thread/status/changed"', "pet sound runtime official thread status listener");
 assertIncludes(petEventSoundRuntimeSource, '"waitingOnApproval"', "pet sound runtime official approval wait status");
+assertIncludes(petEventSoundRuntimeSource, '"data-codex-pet-state"', "pet sound runtime current Codex pet state attribute");
+assertNotIncludes(petEventSoundRuntimeSource, '"data-avatar-state"', "pet sound runtime should not keep the legacy Codex pet state attribute");
 assertIncludes(petEventSoundRuntimeSource, "observedRoot?.isConnected", "pet sound runtime avatar root replacement guard");
 assertIncludes(routerSource, '"today-token-usage"', "Today token usage router registration");
 assertIncludes(routerSource, '"pet-event-sound"', "pet event sound router registration");

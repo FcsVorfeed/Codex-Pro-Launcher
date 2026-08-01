@@ -4,7 +4,7 @@
 
   const channelName = "codex-pro:pet-event-sounds:v1";
   const settingsStorageKey = "codex-pro:settings";
-  const avatarStateSelector = ".codex-avatar-root[data-avatar-state]";
+  const avatarStateSelector = ".codex-avatar-root[data-codex-pet-state]";
   const overlayPlaybackMode = "structured-task-events-v2";
   const defaultSoundVolume = 100;
   const structuredDomEchoWindowMs = 1500;
@@ -506,8 +506,8 @@
   }
 
   function startAvatarObserver(signal) {
-    // 这一段在宠物浮窗里观察官方 data-avatar-state，并把状态变化交给音频运行态。
-    // In the pet overlay, observe the official data-avatar-state and hand state changes to the audio runtime.
+    // 这一段在宠物浮窗里观察官方 data-codex-pet-state，并把状态变化交给音频运行态。
+    // In the pet overlay, observe the official data-codex-pet-state and hand state changes to the audio runtime.
     window.__codexProPetEventSoundsOverlayMode = overlayPlaybackMode;
     const diagnostics = createDiagnostics("avatar-overlay");
     window.__codexProPetEventSoundsDiagnostics = diagnostics;
@@ -528,15 +528,15 @@
       stateObserver?.disconnect();
       observedRoot = root;
       updateDiagnostics(diagnostics, { avatarRootAttached: true });
-      lastState = normalizeAvatarState(root.getAttribute("data-avatar-state"), getSettingsApi());
+      lastState = normalizeAvatarState(root.getAttribute("data-codex-pet-state"), getSettingsApi());
       stateObserver = new MutationObserver(() => {
-        const nextState = normalizeAvatarState(root.getAttribute("data-avatar-state"), getSettingsApi());
+        const nextState = normalizeAvatarState(root.getAttribute("data-codex-pet-state"), getSettingsApi());
         if (!nextState || nextState === lastState) return;
         lastState = nextState;
         if (officialTaskRuntime.consumeDomEcho(nextState)) return;
         audioRuntime.handleStateTrigger(nextState, "avatar-dom");
       });
-      stateObserver.observe(root, { attributeFilter: ["data-avatar-state"], attributes: true });
+      stateObserver.observe(root, { attributeFilter: ["data-codex-pet-state"], attributes: true });
     }
 
     function syncAvatarRoot() {
