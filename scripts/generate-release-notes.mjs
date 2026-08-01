@@ -164,7 +164,7 @@ function categorizeCommit(subject) {
 
 // 这一段生成 Markdown 正文，GitHub Release 和 latest.json 复用同一份内容。
 // Build one Markdown body that both GitHub Release and latest.json can reuse.
-function buildReleaseNotes({ commits, from, to, version }) {
+function buildReleaseNotes({ commits, from, previousReleaseTag, to, version }) {
   const grouped = new Map([
     ["Added", []],
     ["Changed", []],
@@ -182,7 +182,18 @@ function buildReleaseNotes({ commits, from, to, version }) {
   }
 
   const rangeText = from ? `${from}..${to}` : to;
-  const lines = [`## Changes in v${version}`, "", `Range: \`${rangeText}\``];
+  const lines = [`## Changes in v${version}`, ""];
+
+  // 这一段同时展示面向用户的版本承接关系和真实构建比较范围，避免历史 tag 与实际构建基线不一致时产生歧义。
+  // Show both the user-facing release transition and actual build range so a historical tag/build baseline mismatch stays explicit.
+  if (previousReleaseTag) {
+    lines.push(
+      `Previous release: \`${previousReleaseTag}\``,
+      `Current release: \`v${version}\``,
+      "",
+    );
+  }
+  lines.push(`Range: \`${rangeText}\``);
   let hasVisibleChanges = false;
   for (const [category, bullets] of grouped) {
     if (bullets.length === 0) {
@@ -204,7 +215,8 @@ try {
   const options = parseArgs(process.argv.slice(2));
   const version = options.version ?? (await readPackageVersion());
   assertReleaseVersion(version);
-  const from = options.from ?? getPreviousReleaseTag(version);
+  const previousReleaseTag = getPreviousReleaseTag(version);
+  const from = options.from ?? previousReleaseTag;
   const outputPath = path.resolve(
     rootDir,
     options.output ?? path.join(defaultOutputDir, `release-notes-v${version}.md`),
@@ -213,7 +225,13 @@ try {
   // 这一段生成并写入 private 构建目录，避免发布说明副产物混进公开源码树。
   // Generate and write under the private build directory so notes artifacts do not enter public source.
   const commits = readCommits(from, options.to);
-  const notes = buildReleaseNotes({ commits, from, to: options.to, version });
+  const notes = buildReleaseNotes({
+    commits,
+    from,
+    previousReleaseTag,
+    to: options.to,
+    version,
+  });
   await mkdir(path.dirname(outputPath), { recursive: true });
   await writeFile(outputPath, notes, "utf8");
   console.log(`Release notes: ${path.relative(rootDir, outputPath)}`);
