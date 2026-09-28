@@ -12,6 +12,12 @@
   runtime.hardDisabledSystems = new Set(Array.isArray(window.__codexProHardDisabledSystems)
     ? window.__codexProHardDisabledSystems
     : []);
+  // 这一段暂停已退役服务和不再使用的界面功能，保留用户保存的设置。
+  // Suspend retired services and unused UI features without changing saved preferences.
+  runtime.cloudSyncSuspended = true;
+  for (const name of ["startup-sidebar", "chat-line-hover", "conversation-archive", "conversation-archive-sidebar"]) {
+    runtime.hardDisabledSystems.add(name);
+  }
   runtime.systemStates = {};
 
   // 这一段提供系统注册入口，后续每个功能系统只声明自己的启动函数。

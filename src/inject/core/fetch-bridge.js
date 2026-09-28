@@ -2,90 +2,107 @@
   const runtime = window.__codexProRuntime;
   if (!runtime) return;
 
-  function requestBridge(url, options = {}) {
-    // 这一段通过 Codex 自己的 Electron fetch bridge 请求接口，不直接处理认证信息。
-    // Request endpoints through Codex's Electron fetch bridge without handling auth data directly.
-    const bridge = window.electronBridge;
-    if (!bridge?.sendMessageFromView) {
-      return Promise.reject(new Error("Codex fetch bridge is unavailable"));
+  // 这一段取消重新注入前的请求，并缓存当前官方 HTTP 客户端的发现结果。
+  // Cancel requests from the previous injection and cache discovery of the official HTTP client.
+  runtime.controllers["http-fetch"]?.abort();
+  const controller = new AbortController();
+  runtime.controllers["http-fetch"] = controller;
+  let clientPromise = null;
+
+  async function discoverHttpClient() {
+    // 这一段只读取当前页面的官方入口，动态解析共享模块路径，不固定构建 hash。
+    // Read only the current official entry scripts and discover shared modules without fixed build hashes.
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(12_000)]);
+    const entries = Array.from(document.scripts, (script) => script.src)
+      .filter((url) => /^app:\/\/-\/assets\/index-[\w-]+\.js$/.test(url));
+    const sharedUrls = new Set();
+    for (const entry of entries.slice(0, 3)) {
+      const response = await fetch(entry, { signal });
+      if (!response.ok) throw new Error("Official application entry is unavailable");
+      const source = await response.text();
+      for (const match of source.matchAll(/app-shared-[\w-]+\.js/g)) {
+        sharedUrls.add(new URL(match[0], entry).href);
+      }
     }
 
-    // 这一段为单次请求建立临时监听器，完成、超时或取消后都会清理。
-    // Create a temporary listener for one request and clean it up on completion, timeout, or cancel.
-    const requestId = crypto.randomUUID();
-    const method = options.method ?? "GET";
-    const timeoutMs = options.timeoutMs ?? 12_000;
-    const signal = options.signal;
-    if (signal?.aborted) {
-      return Promise.reject(new DOMException("Aborted", "AbortError"));
+    // 这一段按官方类的自有方法识别唯一客户端，不调用任意导出或代理服务。
+    // Identify the unique official client by its own methods without invoking arbitrary exports or service proxies.
+    for (const url of Array.from(sharedUrls).slice(0, 3)) {
+      signal.throwIfAborted();
+      const module = await import(url);
+      const candidates = Object.values(module).filter((value) => (
+        typeof value === "function" && value.prototype &&
+        Object.hasOwn(value.prototype, "fetch") &&
+        Object.hasOwn(value.prototype, "fetchJson") &&
+        Object.hasOwn(value.prototype, "cancelStream") &&
+        typeof value.getInstance === "function"
+      ));
+      if (candidates.length === 1) return candidates[0].getInstance();
     }
+    throw new Error("Official HTTP fetch client is unavailable");
+  }
 
+  function getHttpClient() {
+    // 这一段合并并发发现；失败后允许下一次正常刷新重试，不回退到已废弃的消息协议。
+    // Share concurrent discovery and allow later refreshes to retry without using the retired message protocol.
+    if (!clientPromise) {
+      clientPromise = discoverHttpClient().catch((error) => {
+        clientPromise = null;
+        throw error;
+      });
+    }
+    return clientPromise;
+  }
+
+  function waitWithSignal(promise, signal) {
+    // 这一段让单个请求在共享发现期间也能及时超时或取消，并清理临时监听。
+    // Allow individual requests to time out or cancel during shared discovery and remove temporary listeners.
+    signal.throwIfAborted();
     return new Promise((resolve, reject) => {
-      let timeoutId = 0;
-      const cleanup = () => {
-        window.clearTimeout(timeoutId);
-        window.removeEventListener("message", onMessage);
-        signal?.removeEventListener("abort", onAbort);
+      const onAbort = () => {
+        signal.removeEventListener("abort", onAbort);
+        reject(signal.reason);
       };
-
-      const finishWithError = (error) => {
-        cleanup();
-        reject(error);
-      };
-
-      function onAbort() {
-        finishWithError(new DOMException("Aborted", "AbortError"));
-      }
-
-      function onMessage(event) {
-        const message = event.data;
-        if (!message || message.type !== "fetch-response" || message.requestId !== requestId) return;
-        cleanup();
-
-        if (message.responseType !== "success" || message.status < 200 || message.status >= 300) {
-          reject(new Error(`Request failed: ${message.status || "unknown"}`));
-          return;
-        }
-
-        resolve(message);
-      }
-
-      timeoutId = window.setTimeout(() => {
-        finishWithError(new Error("Request timed out"));
-      }, timeoutMs);
-
-      window.addEventListener("message", onMessage);
-      signal?.addEventListener("abort", onAbort, { once: true });
-
-      bridge
-        .sendMessageFromView({
-          type: "fetch",
-          requestId,
-          method,
-          url,
-          headers: options.headers ?? {},
-          body: options.body,
-        })
-        .catch(finishWithError);
+      signal.addEventListener("abort", onAbort, { once: true });
+      promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
     });
   }
 
+  async function requestBridge(url, options, readBody) {
+    // 这一段统一请求期限、功能取消和重新注入取消，认证与响应流释放由官方客户端处理。
+    // Combine timeout, feature cancellation, and reinjection cancellation; the official client handles auth and stream disposal.
+    const signals = [controller.signal, AbortSignal.timeout(options.timeoutMs ?? 12_000)];
+    if (options.signal) signals.push(options.signal);
+    const signal = AbortSignal.any(signals);
+    const client = await waitWithSignal(getHttpClient(), signal);
+    signal.throwIfAborted();
+    const response = await client.fetch(url, {
+      method: options.method ?? "GET",
+      headers: options.headers ?? {},
+      body: options.body,
+      signal,
+    });
+    try {
+      if (!response.ok) throw new Error("Request failed: " + response.status);
+      return readBody ? await response.json() : { status: response.status };
+    } finally {
+      // 这一段释放未读取或读取失败的响应流，网络耗时检测不保留响应正文。
+      // Release unread or failed response streams; latency checks never retain the response body.
+      await response.body?.cancel().catch(() => {});
+    }
+  }
+
   function requestJson(url, options = {}) {
-    // 这一段在请求成功后解析 JSON，供 Codex 内部接口和状态接口复用。
-    // Parse JSON only after a successful request for Codex internal APIs and JSON endpoints.
-    return requestBridge(url, options).then((message) => JSON.parse(message.bodyJsonString));
+    // 这一段为需要数据的调用方读取 JSON，同时沿用统一取消和错误语义。
+    // Read JSON for data callers while preserving common cancellation and error handling.
+    return requestBridge(url, options, true);
   }
 
   function requestOk(url, options = {}) {
-    // 这一段只确认 HTTP 请求成功，适合网络耗时检测这类不需要读取响应体的请求。
-    // Confirm only HTTP success for latency checks that do not need the response body.
-    return requestBridge(url, options).then((message) => ({
-      status: message.status,
-    }));
+    // 这一段仅返回 HTTP 状态，供网络耗时检测使用。
+    // Return only HTTP status for network latency measurements.
+    return requestBridge(url, options, false);
   }
 
-  runtime.fetchBridge = {
-    requestJson,
-    requestOk,
-  };
+  runtime.fetchBridge = { requestJson, requestOk };
 })();

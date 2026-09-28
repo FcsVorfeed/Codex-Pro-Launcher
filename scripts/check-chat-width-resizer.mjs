@@ -29,7 +29,7 @@ const rustAssetsSource = await readFile(rustAssetsPath, "utf8");
 assertIncludes(runtimeSource, '"chat-width-resizer"', "runtime must register the chat-width-resizer system");
 assertIncludes(runtimeSource, "--thread-content-max-width", "runtime must use Codex's thread-content width CSS variable");
 assertIncludes(runtimeSource, "[data-codex-composer='true']", "runtime must anchor to Codex's composer marker");
-assertIncludes(runtimeSource, "max-w-(--thread-content-max-width)", "runtime must find the official width wrapper");
+assertIncludes(runtimeSource, "[data-thread-find-composer]", "runtime must find the official composer boundary");
 assertIncludes(runtimeSource, "setPointerCapture", "runtime must capture pointer drags on the resize handle");
 assertIncludes(runtimeSource, "requestAnimationFrame", "runtime must coalesce DOM/layout refreshes");
 assertIncludes(runtimeSource, "MutationObserver", "runtime must follow composer rerenders");
@@ -39,8 +39,8 @@ assertIncludes(runtimeSource, "chatWidthMode: \"custom\"", "runtime must mark dr
 assertIncludes(runtimeSource, "chatWidthMode: \"official\"", "runtime must support returning to native width");
 assertIncludes(runtimeSource, "auxclick", "runtime must suppress middle-click browser autoscroll");
 assertIncludes(runtimeSource, 'window.addEventListener("pointerdown", captureMiddleReset', "runtime must capture hotspot middle-clicks before mouse gestures");
-assertIncludes(runtimeSource, "restoreNativeThreadContentWidth(originalBodyWidth)", "runtime must restore any pre-existing inline width in native mode");
-assertIncludes(runtimeSource, "removeProperty(threadContentWidthProperty)", "runtime must restore the native width variable on cleanup");
+assertIncludes(runtimeSource, "restoreNativeThreadContentWidth(originalBodyWidths)", "runtime must restore any pre-existing inline width in native mode");
+assertIncludes(runtimeSource, "removeProperty(property)", "runtime must restore the native width variable on cleanup");
 assertNotIncludes(runtimeSource, `#\${handleId}::after`, "runtime must keep the resize hotspot visually transparent");
 
 assertIncludes(settingsSource, 'id: "chat-width-resizer"', "settings section must register chat-width-resizer");

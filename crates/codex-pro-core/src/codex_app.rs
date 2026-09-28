@@ -12,8 +12,8 @@ const PACKAGED_CDP_READY_TIMEOUT_MS: u64 = 5_000;
 /// Describes the resolved Codex launch target.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct LaunchTarget {
-    /// 这一段是 Codex.exe 路径，MSIX 权限不可见时允许为空。
-    /// Codex.exe path, allowed to be empty when MSIX permissions hide it.
+    /// 这一段是 ChatGPT.exe 路径，MSIX 权限不可见时允许为空。
+    /// ChatGPT.exe path, allowed to be empty when MSIX permissions hide it.
     pub executable: String,
     /// 这一段是 MSIX AppUserModelId。
     /// MSIX AppUserModelId.
@@ -37,8 +37,8 @@ pub struct LaunchResult {
     pub cdp_ready: bool,
 }
 
-/// 这一段把输入路径归一化到 Codex.exe。
-/// Normalize a user input path into Codex.exe.
+/// 这一段把输入路径归一化到 ChatGPT.exe。
+/// Normalize a user input path into ChatGPT.exe.
 pub fn normalize_codex_path(value: &str) -> String {
     // 这一段支持 exe、app 目录和包根目录三种输入。
     // Support an exe, app directory, or package root.
@@ -48,22 +48,22 @@ pub fn normalize_codex_path(value: &str) -> String {
     }
     let path = PathBuf::from(trimmed);
     let path_text = path.to_string_lossy();
-    if path_text.to_ascii_lowercase().ends_with("codex.exe") {
+    if path_text.to_ascii_lowercase().ends_with("chatgpt.exe") {
         return path_text.to_string();
     }
     if path_text.to_ascii_lowercase().ends_with("\\app")
         || path_text.to_ascii_lowercase().ends_with("/app")
     {
-        return path.join("Codex.exe").to_string_lossy().to_string();
+        return path.join("ChatGPT.exe").to_string_lossy().to_string();
     }
     path.join("app")
-        .join("Codex.exe")
+        .join("ChatGPT.exe")
         .to_string_lossy()
         .to_string()
 }
 
-/// 这一段从 Codex.exe 路径推导 AppUserModelId。
-/// Derive AppUserModelId from a Codex.exe path.
+/// 这一段从 ChatGPT.exe 路径推导 AppUserModelId。
+/// Derive AppUserModelId from a ChatGPT.exe path.
 pub fn app_user_model_id_from_executable(executable: &str) -> String {
     // 这一段查找 OpenAI.Codex_* 包目录名，并按 MSIX 规则拼接。
     // Find the OpenAI.Codex_* package segment and assemble the MSIX id.
@@ -120,8 +120,8 @@ pub fn resolve_launch_target(
     })
 }
 
-/// 这一段解析默认 Codex.exe 路径。
-/// Resolve the default Codex.exe path.
+/// 这一段解析默认 ChatGPT.exe 路径。
+/// Resolve the default ChatGPT.exe path.
 fn resolve_default_codex_executable() -> String {
     // 这一段优先复用正在运行的 Codex 进程路径，适合 WindowsApps 目录不可枚举的环境。
     // Prefer the running Codex process path, which works even when WindowsApps cannot be enumerated.
@@ -136,8 +136,8 @@ fn resolve_default_codex_executable() -> String {
         .unwrap_or_default()
 }
 
-/// 这一段查找最新安装的 Codex.exe。
-/// Find the latest installed Codex.exe.
+/// 这一段查找最新安装的 ChatGPT.exe。
+/// Find the latest installed ChatGPT.exe.
 fn find_latest_installed_codex_executable() -> Option<PathBuf> {
     // 这一段目前只需要 Windows MSIX 包路径，其他平台保留空实现。
     // Currently only Windows MSIX package paths are needed; other platforms keep an empty implementation.
@@ -175,9 +175,9 @@ fn find_latest_windowsapps_codex_executable() -> Option<PathBuf> {
             };
             let app_dir = path.join("app");
             let executable = if app_dir.is_dir() {
-                app_dir.join("Codex.exe")
+                app_dir.join("ChatGPT.exe")
             } else {
-                path.join("Codex.exe")
+                path.join("ChatGPT.exe")
             };
             if executable.is_file() {
                 candidates.push((version, executable));
@@ -293,7 +293,7 @@ pub async fn launch_codex(target: &LaunchTarget, debug_port: u16) -> anyhow::Res
             .map(|error| format!(" MSIX activation error: {error}"))
             .unwrap_or_default();
         bail!(
-            "Refusing direct WindowsApps Codex.exe launch; use MSIX activation instead.{activation_detail}"
+            "Refusing direct WindowsApps ChatGPT.exe launch; use MSIX activation instead.{activation_detail}"
         );
     }
     let mut command = Command::new(&fallback_executable);
@@ -376,7 +376,7 @@ mod tests {
     #[test]
     fn app_user_model_id_is_derived_from_msix_path() {
         let id = app_user_model_id_from_executable(
-            r"C:\Program Files\WindowsApps\OpenAI.Codex_1.2.3.0_x64__2p2nqsd0c76g0\app\Codex.exe",
+            r"C:\Program Files\WindowsApps\OpenAI.Codex_1.2.3.0_x64__2p2nqsd0c76g0\app\ChatGPT.exe",
         );
         assert_eq!(id, "OpenAI.Codex_2p2nqsd0c76g0!App");
     }
@@ -384,7 +384,7 @@ mod tests {
     #[test]
     fn app_user_model_id_is_derived_from_beta_msix_path() {
         let id = app_user_model_id_from_executable(
-            r"C:\Program Files\WindowsApps\OpenAI.CodexBeta_1.2.3.0_x64__2p2nqsd0c76g0\app\Codex.exe",
+            r"C:\Program Files\WindowsApps\OpenAI.CodexBeta_1.2.3.0_x64__2p2nqsd0c76g0\app\ChatGPT.exe",
         );
         assert_eq!(id, "OpenAI.CodexBeta_2p2nqsd0c76g0!App");
     }
@@ -399,7 +399,7 @@ mod tests {
     #[test]
     fn direct_windowsapps_launch_is_refused_on_windows() {
         let executable =
-            r"C:\Program Files\WindowsApps\OpenAI.Codex_1.2.3.0_x64__2p2nqsd0c76g0\app\Codex.exe";
+            r"C:\Program Files\WindowsApps\OpenAI.Codex_1.2.3.0_x64__2p2nqsd0c76g0\app\ChatGPT.exe";
         #[cfg(windows)]
         assert!(should_refuse_direct_windowsapps_launch(executable));
         #[cfg(not(windows))]
@@ -407,9 +407,18 @@ mod tests {
     }
 
     #[test]
+    fn renamed_desktop_path_is_not_treated_as_a_directory() {
+        // 这一段验证新版主程序路径直接保留，目录输入才追加程序文件名。
+        // Preserve the renamed executable path and append its name only to directory inputs.
+        let executable = r"C:\Example\app\ChatGPT.exe";
+        assert_eq!(normalize_codex_path(executable), executable);
+        assert!(normalize_codex_path(r"C:\Example\app").ends_with("ChatGPT.exe"));
+    }
+
+    #[test]
     fn direct_non_windowsapps_launch_is_allowed() {
         assert!(!should_refuse_direct_windowsapps_launch(
-            r"C:\Tools\Codex\app\Codex.exe"
+            r"C:\Tools\Codex\app\ChatGPT.exe"
         ));
     }
 }

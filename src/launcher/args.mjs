@@ -77,7 +77,7 @@ Usage:
   npm run inject
 
 Options:
-  --app-path <path>     Codex.exe path, app directory, or WindowsApps package app directory
+  --app-path <path>     ChatGPT.exe path, app directory, or WindowsApps package app directory
   --app-user-model-id <id>
                         MSIX AppUserModelId fallback, default ${defaultAppUserModelId || "(none)"}
   --debug-port <port>   CDP port, default ${defaultDebugPort}

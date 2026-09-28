@@ -958,8 +958,14 @@ for (const block of expectedCloudSyncBlocks) {
 for (const section of expectedSections) {
   const moduleId = pathId(section.modulePath);
   assert(sectionModulePaths.includes(moduleId), `${section.id} must be declared in settingsMenuSectionModules`);
-  assertBeforeInList(injectionModulePaths, registryEntry, moduleId);
-  assertBeforeInList(injectionModulePaths, moduleId, viewEntry);
+  // 这一段确认退役功能不再进入实际加载清单，保留其源码与独立模块检查。
+  // Verify retired features are absent from the active bundle while retaining source and standalone checks.
+  if (["startup-sidebar", "chat-line-hover"].includes(section.ownerSystem)) {
+    assert(!injectionModulePaths.includes(moduleId), `${section.id} must stay suspended`);
+  } else {
+    assertBeforeInList(injectionModulePaths, registryEntry, moduleId);
+    assertBeforeInList(injectionModulePaths, moduleId, viewEntry);
+  }
   assert(
     !buildInjectionModulePaths([section.ownerSystem]).map(pathId).includes(moduleId),
     `${section.id} settings module must be skipped when ${section.ownerSystem} is disabled`,

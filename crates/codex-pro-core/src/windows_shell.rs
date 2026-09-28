@@ -561,10 +561,10 @@ pub async fn try_reuse_running_codex(app_user_model_id: &str) -> anyhow::Result<
     }
 
     fn find_codex_process_ids(diagnostics: &mut Vec<String>, phase: &str) -> HashSet<u32> {
-        // 这一段通过系统进程表查找 Codex.exe，避免按窗口标题或界面文案判断。
-        // Query the process table for Codex.exe instead of relying on window titles or UI text.
+        // 这一段通过系统进程表查找 ChatGPT.exe，避免按窗口标题或界面文案判断。
+        // Query the process table for ChatGPT.exe instead of relying on window titles or UI text.
         let mut command = Command::new("tasklist.exe");
-        command.args(["/FI", "IMAGENAME eq Codex.exe", "/FO", "CSV", "/NH"]);
+        command.args(["/FI", "IMAGENAME eq ChatGPT.exe", "/FO", "CSV", "/NH"]);
         command.creation_flags(CREATE_NO_WINDOW);
         let mut process_ids = HashSet::new();
         match command.output() {
@@ -572,7 +572,7 @@ pub async fn try_reuse_running_codex(app_user_model_id: &str) -> anyhow::Result<
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 for line in stdout.lines() {
                     if let Some((image_name, pid)) = parse_tasklist_csv_line(line)
-                        && image_name.eq_ignore_ascii_case("Codex.exe")
+                        && image_name.eq_ignore_ascii_case("ChatGPT.exe")
                     {
                         process_ids.insert(pid);
                     }

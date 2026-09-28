@@ -191,7 +191,7 @@
     render(settings) {
       // 这一段先声明同步密钥，再把所有云端同步相关功能按区块收拢到同一页。
       // Declare the sync key first, then collect every cloud-sync feature into one page.
-      return `
+      const content = `
         <label class="codex-pro-settings-field codex-pro-settings-field-stack" data-codex-pro-setting-key="cloudSyncKey">
           <span class="codex-pro-settings-copy">
             <span class="codex-pro-settings-label">${i18n.html("settings.cloudSync.key.label")}</span>
@@ -241,8 +241,16 @@
           ${getRegisteredCloudSyncBlocks().map((block) => renderCloudSyncFeatureBlock(block, settings)).join("")}
         </div>
       `;
+      // 这一段保留整个分页和原值，但通过原生 disabled fieldset 禁用所有交互。
+      // Preserve the page and values while disabling every control with a native disabled fieldset.
+      return runtime.cloudSyncSuspended
+        ? `<p role="status" data-codex-pro-cloud-sync-suspended>${i18n.html("settings.cloudSync.suspended")}</p><fieldset disabled inert style="border:0;margin:0;padding:0;min-width:0;opacity:0.45">${content}</fieldset>`
+        : content;
     },
     bind(context) {
+      // 这一段不绑定已暂停服务的按钮、保存回调和子区块，避免隐藏后台请求。
+      // Skip suspended service buttons, save callbacks, and child bindings to prevent background requests.
+      if (runtime.cloudSyncSuspended) return;
       const {
         addDialogOpenHandler,
         addDraftSettingsReader,

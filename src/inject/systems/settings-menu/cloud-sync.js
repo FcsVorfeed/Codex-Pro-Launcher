@@ -242,6 +242,9 @@
   }
 
   function getSyncLicenseGate(syncKey) {
+    // 这一段统一返回服务暂停态，不再用旧授权缓存开放远端功能。
+    // Return the suspended service state instead of unlocking remote features from old license caches.
+    if (runtime.cloudSyncSuspended) return { canSync: false, status: "suspended", tone: "", message: i18n.t("settings.cloudSync.suspended") };
     // 这一段给各同步入口返回统一的可用性和提示，不让每个模块各自猜授权状态。
     // Return one shared availability contract so each sync entry does not guess license state independently.
     const normalizedKey = normalizeSyncLicenseKey(syncKey);
@@ -479,6 +482,10 @@
   }
 
   function installSyncLicenseAutoValidation() {
+    // 这一段重新注入时释放旧心跳，并在服务暂停后不再创建任何授权轮询。
+    // Release the previous heartbeat on reinjection and create no license polling while suspended.
+    runtime.controllers?.["settings-menu-sync-license"]?.abort();
+    if (runtime.cloudSyncSuspended) return;
     // 这一段在运行时启动后自动验证已保存密钥，并用低频心跳发现授权过期、撤销或续费变化。
     // Auto-validate the saved key after runtime startup and use a low-frequency heartbeat to detect expiry, revocation, or renewal.
     const settingsApi = settingsMenu.settings;

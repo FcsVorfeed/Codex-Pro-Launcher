@@ -6,9 +6,10 @@
   const styleId = "codex-pro-chat-width-resizer-style";
   const handleId = "codex-pro-chat-width-resizer-handle";
   const resizeHandleAttribute = "data-codex-pro-chat-width-resizer-handle";
-  const threadContentWidthProperty = "--thread-content-max-width";
+  // 这一段覆盖新版响应式宽度入口，并保留未设置响应式值时的内容宽度入口。
+  // Override responsive width inputs and the content-width input used when responsive values are absent.
+  const threadContentWidthProperties = ["--thread-content-max-width", "--thread-content-expanded-max-width", "--thread-content-compact-max-width"];
   const composerEditorSelector = "[data-codex-composer='true'], .ProseMirror, textarea, [contenteditable='true']";
-  const composerWidthClasses = ["mx-auto", "w-full", "max-w-(--thread-content-max-width)", "px-toolbar"];
   const fallbackDefaultWidthPixels = 1100;
   const fallbackMinimumWidthPixels = 560;
   const fallbackMaximumWidthPixels = 2200;
@@ -56,19 +57,6 @@
     return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity) !== 0;
   }
 
-  function getClassTokenSet(element) {
-    // 这一段把 className 规整成 token 集合，兼容普通 DOM 节点的 class 字符串。
-    // Normalize className into a token set for ordinary DOM nodes.
-    return new Set(String(element?.className || "").split(/\s+/).filter(Boolean));
-  }
-
-  function hasAllClassTokens(element, tokens) {
-    // 这一段用完整 class token 命中 Codex 的宽度容器，避免按文案或模糊片段定位。
-    // Match Codex width containers by complete class tokens instead of copy or fuzzy substrings.
-    const classTokens = getClassTokenSet(element);
-    return tokens.every((token) => classTokens.has(token));
-  }
-
   function findComposerEditor() {
     // 这一段优先使用 Codex 自己标记的 composer 编辑器，并按屏幕底部位置选择当前输入框。
     // Prefer Codex's own composer marker and choose the editor closest to the bottom of the viewport.
@@ -79,24 +67,16 @@
     return editors.sort((left, right) => right.getBoundingClientRect().bottom - left.getBoundingClientRect().bottom)[0] || null;
   }
 
-  function findComposerWidthElementFromEditor(editor) {
-    // 这一段从编辑器向上寻找官方使用 thread-content 宽度变量的外层，不读取任何语言文案。
-    // Walk upward from the editor to find the wrapper that uses the official thread-content width variable.
-    for (let element = editor; element instanceof HTMLElement && element !== document.body; element = element.parentElement) {
-      if (hasAllClassTokens(element, composerWidthClasses) && isVisibleElement(element)) return element;
-    }
-    return null;
-  }
-
   function findComposerWidthElement() {
-    // 这一段优先从当前输入框定位；DOM 重绘瞬间找不到编辑器时才扫描同类宽度容器。
-    // Locate through the current editor first, scanning matching width wrappers only during rerender gaps.
+    // 这一段从当前编辑器定位官方 composer 标记及其宽度外层，并限制在官方页脚内。
+    // Locate the official composer marker and its width wrapper, constrained to the native footer.
     const editor = findComposerEditor();
-    const fromEditor = findComposerWidthElementFromEditor(editor);
-    if (fromEditor) return fromEditor;
-    return Array.from(document.querySelectorAll("div"))
-      .filter((element) => hasAllClassTokens(element, composerWidthClasses) && isVisibleElement(element))
-      .sort((left, right) => right.getBoundingClientRect().bottom - left.getBoundingClientRect().bottom)[0] || null;
+    const marker = editor?.closest("[data-thread-find-composer]");
+    const footer = marker?.closest("[data-thread-scroll-footer]");
+    const wrapper = marker?.parentElement;
+    return wrapper && wrapper !== footer && footer?.contains(wrapper) && isVisibleElement(wrapper)
+      ? wrapper
+      : null;
   }
 
   function findResizeBoundsElement(composerElement) {
@@ -150,19 +130,28 @@
     // Widen chat content and composer through the official CSS variable without touching React state or send logic.
     if (!document.body) return width;
     const nextWidth = clampWidth(width, settingsApi, composerElement);
-    document.body.style.setProperty(threadContentWidthProperty, `${nextWidth}px`);
+    for (const property of threadContentWidthProperties) {
+      if (document.body.style.getPropertyValue(property) !== `${nextWidth}px`) {
+        document.body.style.setProperty(property, `${nextWidth}px`);
+      }
+    }
     return nextWidth;
   }
 
-  function restoreNativeThreadContentWidth(originalBodyWidth = "") {
-    // 这一段恢复本系统启动前的 inline 宽度；没有原值时才移除覆盖交回官方 CSS。
-    // Restore the inline width that existed before this system started; remove only when there was no original value.
+  function restoreNativeThreadContentWidth(originalBodyWidths) {
+    // 这一段恢复启动前每个 inline 值及其优先级，完整交回官方响应式布局。
+    // Restore every original inline value and priority so native responsive layout regains control.
     if (!document.body) return;
-    if (originalBodyWidth) {
-      document.body.style.setProperty(threadContentWidthProperty, originalBodyWidth);
-      return;
+    for (const property of threadContentWidthProperties) {
+      const original = originalBodyWidths[property];
+      if (original.value) {
+        if (document.body.style.getPropertyValue(property) !== original.value || document.body.style.getPropertyPriority(property) !== original.priority) {
+          document.body.style.setProperty(property, original.value, original.priority);
+        }
+      } else if (document.body.style.getPropertyValue(property)) {
+        document.body.style.removeProperty(property);
+      }
     }
-    document.body.style.removeProperty(threadContentWidthProperty);
   }
 
   function ensureHandle(signal) {
@@ -202,14 +191,21 @@
 
     installStyles();
     const handle = ensureHandle(controller.signal);
-    const originalBodyWidth = document.body?.style.getPropertyValue(threadContentWidthProperty) || "";
+    const originalBodyWidths = Object.fromEntries(threadContentWidthProperties.map((property) => [property, {
+      value: document.body?.style.getPropertyValue(property) || "",
+      priority: document.body?.style.getPropertyPriority(property) || "",
+    }]));
     let currentSettings = settingsApi?.getSettings?.() || {};
     let frameId = 0;
     let composerElement = null;
     let dragState = null;
 
     const resizeObserver = new ResizeObserver(() => scheduleRefresh("resize-observer"));
-    const mutationObserver = new MutationObserver(() => scheduleRefresh("mutation"));
+    const mutationObserver = new MutationObserver((records) => {
+      // 这一段忽略拖拽热区自身的布局写入，避免观察器形成逐帧自触发循环。
+      // Ignore hotspot layout writes so the observer cannot trigger a frame-by-frame feedback loop.
+      if (records.some((record) => record.target !== handle)) scheduleRefresh("mutation");
+    });
 
     function observeComposer(nextComposerElement) {
       // 这一段只观察当前 composer 宽度容器，输入框高度变化时热区能跟随。
@@ -228,7 +224,7 @@
       if (shouldUseCustomWidth(currentSettings)) {
         applyThreadContentWidth(readSettingWidth(currentSettings), settingsApi, nextComposerElement);
       } else {
-        restoreNativeThreadContentWidth(originalBodyWidth);
+        restoreNativeThreadContentWidth(originalBodyWidths);
       }
       placeHandle(handle, nextComposerElement);
     }
@@ -286,7 +282,7 @@
       event.preventDefault();
       event.stopPropagation();
       clearDragState();
-      restoreNativeThreadContentWidth(originalBodyWidth);
+      restoreNativeThreadContentWidth(originalBodyWidths);
       if (settingsApi?.saveSettings) {
         const settings = settingsApi.getSettings();
         settingsApi.saveSettings({
@@ -384,13 +380,7 @@
         resizeObserver.disconnect();
         unsubscribeSettings?.();
         clearDragState();
-        if (document.body) {
-          if (originalBodyWidth) {
-            document.body.style.setProperty(threadContentWidthProperty, originalBodyWidth);
-          } else {
-            document.body.style.removeProperty(threadContentWidthProperty);
-          }
-        }
+        restoreNativeThreadContentWidth(originalBodyWidths);
         document.getElementById(styleId)?.remove();
       },
       { once: true },

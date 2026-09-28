@@ -180,7 +180,7 @@
   function requestCloudSync(params) {
     // 这一段通过 launcher 发起云同步请求，绕过 Codex 页面外网 fetch 限制但不开放任意原生命令。
     // Ask the launcher to perform cloud-sync requests, bypassing page fetch limits without exposing arbitrary commands.
-    if (!supportsCloudSync()) return Promise.resolve(null);
+    if (runtime.cloudSyncSuspended || !supportsCloudSync()) return Promise.resolve(null);
     const endpoint = String(params?.endpoint || "").trim();
     const body = params?.body && typeof params.body === "object" && !Array.isArray(params.body)
       ? params.body
@@ -211,7 +211,7 @@
   function requestPetSync(params) {
     // 这一段通过 launcher 发起宠物资源同步，只传小型控制字段，不让页面传递文件内容。
     // Ask the launcher to perform pet-resource sync, sending only small control fields and no file content.
-    if (!supportsPetSync()) return Promise.resolve(null);
+    if (runtime.cloudSyncSuspended || !supportsPetSync()) return Promise.resolve(null);
     const action = String(params?.action || "").trim().toLowerCase();
     const endpoint = String(params?.endpoint || "").trim();
     const syncKey = String(params?.syncKey || "").trim();
@@ -247,6 +247,9 @@
   function requestConversationArchive(params) {
     // 这一段通过 launcher 发起会话归档同步，只传控制字段，不让页面读取 rollout 或 Markdown 正文。
     // Ask the launcher to perform conversation archive sync, sending only control fields and no rollout or Markdown bodies.
+    // 这一段暂停所有远端归档请求，同时保留本机会话导出附件。
+    // Suspend remote archive requests while preserving local thread attachment export.
+    if (runtime.cloudSyncSuspended && params?.action !== "prepare-local-file") return Promise.resolve(null);
     if (!supportsConversationArchive()) return Promise.resolve(null);
     const action = String(params?.action || "").trim().toLowerCase();
     const endpoint = String(params?.endpoint || "").trim();

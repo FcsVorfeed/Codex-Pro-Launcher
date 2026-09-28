@@ -23,18 +23,18 @@ function compareVersions(left, right) {
 }
 
 function normalizeCodexPath(value) {
-  // 这一段把用户传入的 exe、app 目录或包目录统一成 Codex.exe 路径。
-  // Normalize an exe path, app directory, or package directory into a Codex.exe path.
+  // 这一段把用户传入的 exe、app 目录或包目录统一成 ChatGPT.exe 路径。
+  // Normalize an exe path, app directory, or package directory into a ChatGPT.exe path.
   if (!value) return "";
   const resolved = path.resolve(value);
-  if (/codex\.exe$/i.test(resolved)) return resolved;
-  if (/\\app$/i.test(resolved)) return path.join(resolved, "Codex.exe");
-  return path.join(resolved, "app", "Codex.exe");
+  if (/chatgpt\.exe$/i.test(resolved)) return resolved;
+  if (/\\app$/i.test(resolved)) return path.join(resolved, "ChatGPT.exe");
+  return path.join(resolved, "app", "ChatGPT.exe");
 }
 
 function packageNameFromExecutable(executable) {
-  // 这一段从 Codex.exe 完整路径中找出 OpenAI.Codex_* 包目录名。
-  // Find the OpenAI.Codex_* package directory name from a full Codex.exe path.
+  // 这一段从 ChatGPT.exe 完整路径中找出 OpenAI.Codex_* 包目录名。
+  // Find the OpenAI.Codex_* package directory name from a full ChatGPT.exe path.
   return executable
     .split(/[\\/]/)
     .find((part) => /^OpenAI\.Codex_/i.test(part)) || "";
@@ -56,8 +56,8 @@ function candidateFromNodeOnPath() {
   // Probe PATH only on Windows because the Codex desktop app target here is an MSIX app.
   if (process.platform !== "win32") return "";
 
-  // 这一段用 where.exe 找 node.exe，Codex 自带 node.exe 时可反推出 Codex.exe。
-  // Use where.exe to find node.exe so Codex's bundled node can reveal Codex.exe.
+  // 这一段用 where.exe 找 node.exe，Codex 自带 node.exe 时可反推出 ChatGPT.exe。
+  // Use where.exe to find node.exe so Codex's bundled node can reveal ChatGPT.exe.
   const result = spawnSync("where.exe", ["node"], { encoding: "utf8" });
   if (result.status !== 0) return "";
 
@@ -68,10 +68,10 @@ function candidateFromNodeOnPath() {
     .map((line) => line.trim())
     .find((line) => /\\OpenAI\.Codex_[^\\]+\\app\\resources\\node\.exe$/i.test(line));
 
-  // 这一段把 resources\node.exe 替换为同级 app\Codex.exe。
-  // Convert resources\node.exe into the sibling app\Codex.exe path.
+  // 这一段把 resources\node.exe 替换为同级 app\ChatGPT.exe。
+  // Convert resources\node.exe into the sibling app\ChatGPT.exe path.
   if (!codexNode) return "";
-  return codexNode.replace(/\\resources\\node\.exe$/i, "\\Codex.exe");
+  return codexNode.replace(/\\resources\\node\.exe$/i, "\\ChatGPT.exe");
 }
 
 export function resolveCodexExecutable(appPath) {
@@ -80,8 +80,8 @@ export function resolveCodexExecutable(appPath) {
   const explicit = normalizeCodexPath(appPath);
   if (explicit) return explicit;
 
-  // 这一段尝试从 PATH 中的 Codex 内置 Node.js 反推 Codex.exe。
-  // Try to infer Codex.exe from Codex's bundled Node.js on PATH.
+  // 这一段尝试从 PATH 中的 Codex 内置 Node.js 反推 ChatGPT.exe。
+  // Try to infer ChatGPT.exe from Codex's bundled Node.js on PATH.
   const fromNodePath = candidateFromNodeOnPath();
   if (fromNodePath) return fromNodePath;
 
@@ -113,14 +113,14 @@ export function resolveCodexExecutable(appPath) {
       const packageDir = line.trim();
       if (!packageDir) continue;
       candidates.push({
-        executable: path.join(packageDir, "app", "Codex.exe"),
+        executable: path.join(packageDir, "app", "ChatGPT.exe"),
         version: versionPartsFromPackageName(packageDir),
       });
     }
   }
 
-  // 这一段选择版本号最高的 Codex.exe，避免旧版本残留被优先使用。
-  // Choose the highest-version Codex.exe so stale package directories are not preferred.
+  // 这一段选择版本号最高的 ChatGPT.exe，避免旧版本残留被优先使用。
+  // Choose the highest-version ChatGPT.exe so stale package directories are not preferred.
   candidates.sort((left, right) => compareVersions(right.version, left.version));
   return candidates[0]?.executable || "";
 }

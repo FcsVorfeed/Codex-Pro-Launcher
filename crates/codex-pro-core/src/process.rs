@@ -87,8 +87,8 @@ pub fn process_ids_for_executable_path(path: &Path) -> Vec<u32> {
     }
 }
 
-/// 这一段判断系统进程表是否确认官方 Codex.exe 已全部退出。
-/// Return whether process enumeration confirms that all official Codex.exe processes are gone.
+/// 这一段判断系统进程表是否确认官方 ChatGPT.exe 已全部退出。
+/// Return whether process enumeration confirms that all official ChatGPT.exe processes are gone.
 pub fn codex_processes_are_absent() -> bool {
     // 这一段枚举失败时按 Codex 仍可能存在处理，避免因为权限或系统瞬时错误提前关闭 worker。
     // Treat enumeration failures as possibly still running so permission or transient errors do not stop the worker early.
@@ -102,8 +102,8 @@ pub fn codex_processes_are_absent() -> bool {
     }
 }
 
-/// 这一段查找当前正在运行的官方 Codex.exe 路径。
-/// Find the executable path of a currently running official Codex.exe.
+/// 这一段查找当前正在运行的官方 ChatGPT.exe 路径。
+/// Find the executable path of a currently running official ChatGPT.exe.
 pub fn find_running_codex_executable() -> Option<PathBuf> {
     // 这一段只在 Windows 需要从 MSIX 进程反推出真实 exe 路径。
     // Only Windows needs to infer the real exe path from an MSIX process.
@@ -145,7 +145,7 @@ pub fn is_windowsapps_codex_executable(path: &std::path::Path) -> bool {
         .to_string_lossy()
         .replace('/', "\\")
         .to_ascii_lowercase();
-    text.contains("\\windowsapps\\openai.codex") && text.ends_with("\\app\\codex.exe")
+    text.contains("\\windowsapps\\openai.codex") && text.ends_with("\\app\\chatgpt.exe")
 }
 
 /// 这一段判断进程镜像名是否是官方 Codex 进程名。
@@ -153,7 +153,7 @@ pub fn is_windowsapps_codex_executable(path: &std::path::Path) -> bool {
 fn is_codex_process_image_name(exe_file: &str) -> bool {
     // 这一段只匹配完整镜像名，避免误把 Codex-Pro-Launcher 等工具进程算作官方 Codex。
     // Match only the full image name so tools such as Codex-Pro-Launcher are not counted as official Codex.
-    exe_file.eq_ignore_ascii_case("Codex.exe")
+    exe_file.eq_ignore_ascii_case("ChatGPT.exe")
 }
 
 #[cfg(windows)]
@@ -335,8 +335,9 @@ mod tests {
     fn codex_process_image_name_matches_only_official_exe() {
         // 这一段确认只匹配官方 Codex 进程名，不把启动器或命令 runner 算进去。
         // Confirm only the official Codex process name matches, not the launcher or command runner.
-        assert!(is_codex_process_image_name("Codex.exe"));
-        assert!(is_codex_process_image_name("codex.exe"));
+        assert!(is_codex_process_image_name("ChatGPT.exe"));
+        assert!(is_codex_process_image_name("chatgpt.exe"));
+        assert!(!is_codex_process_image_name("codex.exe"));
         assert!(!is_codex_process_image_name("Codex-Pro-Launcher.exe"));
         assert!(!is_codex_process_image_name(
             "codex-command-runner-0.142.0-alpha.6.exe"

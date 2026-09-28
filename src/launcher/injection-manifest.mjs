@@ -288,7 +288,9 @@ function dedupeModulePaths(modulePaths) {
 export function buildInjectionModulePaths(disabledSystems) {
   // 这一段根据系统清单拼接注入文件，禁用某系统时整组模块都会跳过。
   // Build injection files from the system manifest, skipping every module in a disabled system group.
-  const disabledSet = new Set(disabledSystems);
+  // 这一段不再加载已停用功能及其设置页，但保留源码和历史配置。
+  // Stop loading retired features and their settings while retaining source and saved configuration.
+  const disabledSet = new Set([...disabledSystems, "startup-sidebar", "chat-line-hover"]);
   const systemModulePaths = injectableSystems
     .filter((system) => !disabledSet.has(system.name))
     .flatMap((system) => buildSystemModulePaths(system, disabledSet));

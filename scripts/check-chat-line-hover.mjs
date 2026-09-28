@@ -104,16 +104,9 @@ assertIncludes(rustCleanupSource, "codex-pro-chat-line-hover-style", "Rust auxil
 const modulePaths = buildInjectionModulePaths([]).map((modulePath) => modulePath.join("/"));
 const settingsModule = "src/inject/systems/chat-line-hover/settings.js";
 const runtimeModule = "src/inject/systems/chat-line-hover/index.js";
-const settingsViewModule = "src/inject/systems/settings-menu/view.js";
-assert(modulePaths.includes(settingsModule), "buildInjectionModulePaths must include chat-line-hover settings");
-assert(modulePaths.includes(runtimeModule), "buildInjectionModulePaths must include chat-line-hover runtime");
-assert(
-  modulePaths.indexOf(settingsModule) < modulePaths.indexOf(settingsViewModule),
-  "chat-line-hover settings must load before settings-menu view",
-);
-assert(
-  modulePaths.indexOf(settingsViewModule) < modulePaths.indexOf(runtimeModule),
-  "chat-line-hover runtime must load after settings-menu view",
-);
+// 这一段确认暂停功能的源码继续保留，但运行模块和设置入口不再注入。
+// Keep suspended feature sources while excluding runtime and settings modules from injection.
+assert(!modulePaths.includes(settingsModule), "suspended chat-line-hover settings must not load");
+assert(!modulePaths.includes(runtimeModule), "suspended chat-line-hover runtime must not load");
 
 console.log("chat line hover checks passed");

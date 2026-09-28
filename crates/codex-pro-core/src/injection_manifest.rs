@@ -218,6 +218,7 @@ pub fn build_injection_module_paths(disabled_systems: &[String]) -> Vec<&'static
     let disabled = disabled_systems
         .iter()
         .map(String::as_str)
+        .chain(["startup-sidebar", "chat-line-hover"])
         .collect::<std::collections::HashSet<_>>();
     let mut modules = Vec::new();
     modules.extend(CORE_INJECTION_MODULE_PATHS.iter().copied());
