@@ -15,7 +15,7 @@
   const maxFiles = 100;
   const hideDelayMs = 140;
   const workspaceFileModulePattern = /(?:assets\/)?open-workspace-file-[A-Za-z0-9_-]+\.js/u;
-  const reviewSidePanelTabsModulePattern = /(?:assets\/)?thread-side-panel-tabs-[A-Za-z0-9_-]+\.js/u;
+  const reviewRuntimeModulePattern = /(?<![A-Za-z0-9_-])(?:assets\/)?runtime-[A-Za-z0-9_-]+\.js/u;
   const appEntryModulePattern = /(?:assets\/)?app-(?:initial|main)-[A-Za-z0-9_-]+\.js/u;
   const routeScopeHostSelectors = ["file-tree-container", "aside", "main", "nav", "#root"];
   const maxScopeObjectDepth = 7;
@@ -39,8 +39,7 @@
   const maxEnvironmentGitRefreshCacheEntries = 8;
   let workspaceFileModulePromise = null;
   let workspaceFileModulePathPromise = null;
-  let reviewSidePanelTabsModulePromise = null;
-  let reviewSidePanelTabsModulePathPromise = null;
+  let reviewNavigationModulePromise = null;
   let environmentReviewSingleFileScopeCleanup = null;
   const parsedDiffCache = new Map();
   const navigationApi = runtime.systemModules.diffHoverPreviewNavigation || {
@@ -985,6 +984,9 @@
     let navigationRoot = null;
     let navigationState = null;
     let navigationSyncInterval = 0;
+    // 这一段使新的打开请求取代旧请求，防止异步模块发现晚到后切回旧文件。
+    // Let newer open requests supersede older ones so delayed discovery cannot reopen a stale file.
+    let reviewOpenGeneration = 0;
     const settingsApi = runtime.systemModules.settingsMenu?.settings;
 
     installStyles();
@@ -1887,39 +1889,74 @@
       return null;
     }
 
-    async function getReviewSidePanelTabsModulePath() {
-      // 这一段缓存官方 thread-side-panel-tabs chunk 路径，供右上角快速打开 Review tab。
-      // Cache the official thread-side-panel-tabs chunk path for fast right-top Review tab opening.
-      if (!reviewSidePanelTabsModulePathPromise) {
-        reviewSidePanelTabsModulePathPromise = discoverCodexAssetModulePath(
-          reviewSidePanelTabsModulePattern,
-        ).catch((error) => {
-          reviewSidePanelTabsModulePathPromise = null;
+    async function discoverReviewNavigationModule() {
+      // 这一段从当前官方入口和已加载资源收集候选，不匹配 jsx-runtime 等同名后缀。
+      // Collect candidates from official entries and loaded resources without matching suffixes such as jsx-runtime.
+      const scripts = Array.from(document.scripts, (script) => script.src)
+        .filter((url) => url && url.startsWith("app://-/assets/"));
+      const resources = performance.getEntriesByType("resource").map((entry) => entry.name)
+        .filter((url) => url && url.startsWith("app://-/assets/") && url.endsWith(".js"));
+      const checked = new Set();
+      const sources = Array.from(new Set([...scripts, ...resources.filter((url) => /\/(?:app-initial|app-main)-[A-Za-z0-9_-]+\.js$/u.test(url))]));
+
+      async function inspectCandidates(source, baseUrl) {
+        // 这一段先检查候选源码是否导出目标动作，避免执行无关的 runtime 模块。
+        // Check candidate source for the action export before importing unrelated runtime modules.
+        for (const match of source.matchAll(new RegExp(reviewRuntimeModulePattern.source, "gu"))) {
+          const url = normalizeCodexAssetModulePath(match[0], reviewRuntimeModulePattern, baseUrl);
+          if (!url || checked.has(url) || checked.size >= 24) continue;
+          checked.add(url);
+          try {
+            const response = await fetch(url, { signal });
+            if (!response.ok) continue;
+            const text = await response.text();
+            if (!text.includes("openThreadBranchReviewSidePanelTab")) continue;
+            const module = await import(url);
+            signal.throwIfAborted();
+            if (getThreadBranchReviewOpener(module)) return module;
+          } catch (error) {
+            if (signal.aborted) throw error;
+          }
+        }
+        return null;
+      }
+
+      // 这一段优先复用资源记录，再有界跟进入口引用；空发现不缓存为永久失败。
+      // Prefer recorded resources, then follow bounded entry references; do not permanently cache an empty discovery.
+      const loaded = await inspectCandidates(resources.join("\n"), location.href);
+      if (loaded) return loaded;
+      for (let index = 0; index < sources.length && index < 24; index += 1) {
+        try {
+          const response = await fetch(sources[index], { signal });
+          if (!response.ok) continue;
+          const source = await response.text();
+          const module = await inspectCandidates(source, sources[index]);
+          if (module) return module;
+          const entry = normalizeCodexAssetModulePath(source, appEntryModulePattern, sources[index]);
+          if (entry && !sources.includes(entry)) sources.push(entry);
+        } catch (error) {
+          if (signal.aborted) throw error;
+        }
+      }
+      throw new Error("Official Review navigation module not found");
+    }
+
+    function getReviewNavigationModule() {
+      // 这一段合并并发发现，失败后允许下次点击重试，不保留失效模块路径。
+      // Share concurrent discovery and allow the next click to retry after failure without retaining stale paths.
+      if (!reviewNavigationModulePromise) {
+        reviewNavigationModulePromise = discoverReviewNavigationModule().catch((error) => {
+          reviewNavigationModulePromise = null;
           throw error;
         });
       }
-      return reviewSidePanelTabsModulePathPromise;
+      return reviewNavigationModulePromise;
     }
 
-    async function getReviewSidePanelTabsModule() {
-      // 这一段复用官方侧栏 tab 模块，避免点击环境面板 Changes 行触发全量入口。
-      // Reuse the official side-panel tab module instead of clicking the environment Changes row.
-      if (!reviewSidePanelTabsModulePromise) {
-        reviewSidePanelTabsModulePromise = getReviewSidePanelTabsModulePath().then((modulePath) => {
-          if (!modulePath) throw new Error("thread-side-panel-tabs module path not found");
-          return import(modulePath);
-        }).catch((error) => {
-          reviewSidePanelTabsModulePromise = null;
-          throw error;
-        });
-      }
-      return reviewSidePanelTabsModulePromise;
-    }
-
-    function getThreadBranchReviewOpener(reviewSidePanelTabsModule) {
-      // 这一段只读取最新版官方具名导出，避免继续依赖已经移除的短导出名和旧状态模块。
-      // Read only the latest official named export, avoiding removed short exports and the legacy state module.
-      const candidate = reviewSidePanelTabsModule?.openThreadBranchReviewSidePanelTab;
+    function getThreadBranchReviewOpener(reviewNavigationModule) {
+      // 这一段只使用官方具名动作，不依赖压缩函数名或手工拼装审查状态。
+      // Use only the official named action, without minified names or manually assembled review state.
+      const candidate = reviewNavigationModule?.openThreadBranchReviewSidePanelTab;
       return typeof candidate === "function" ? candidate : null;
     }
 
@@ -2082,8 +2119,9 @@
       clearNavigationBar();
       hidePanel();
       clearReviewSingleFileScope();
-      if (await openOfficialSingleFileBranchReview(anchor, summary, file, "edited file card")) {
-        scheduleEnvironmentReviewSingleFileToggleScope(filterTarget, file);
+      const review = await openOfficialSingleFileBranchReview(anchor, summary, file, "edited file card");
+      if (review) {
+        scheduleEnvironmentReviewSingleFileToggleScope(filterTarget, file, review.selectPath);
         return true;
       }
       console.warn("[Codex-Pro] edited file card single-file review opener failed", file.path);
@@ -2291,6 +2329,7 @@
     }
 
     function clearReviewSingleFileScope() {
+      reviewOpenGeneration += 1;
       // 这一段清理我们自己加的单文件作用域，并停止右上角官方展开监听。
       // Clear our single-file scope and stop the environment-panel official expansion watcher.
       cancelEnvironmentReviewSingleFileScope();
@@ -2308,42 +2347,57 @@
     }
 
     function applyEnvironmentReviewSingleFileToggleScope(filterTarget) {
-      // 这一段只用于右上角环境面板：折叠非目标官方 diff，只展开目标文件。
-      // This is environment-panel only: collapse non-target official diffs and expand only the target file.
+      // 这一段只在目标唯一且官方展开控件存在时处理卡片，避免折叠错误页面。
+      // Operate only when the target is unique and has an official toggle, avoiding unrelated review pages.
       const reviewCards = Array.from(document.querySelectorAll("[data-review-path]"));
-      let matchedCount = 0;
-      let toggledCount = 0;
-      let toggleCount = 0;
+      const matches = reviewCards.filter((card) => reviewDiffPathMatches(card.getAttribute("data-review-path"), filterTarget));
+      const target = matches.length === 1 ? matches[0] : null;
+      const targetToggle = target ? getOfficialReviewFileToggle(target) : null;
+      const targetState = targetToggle?.getAttribute(reviewFileExpandedAttribute);
+      const result = { matchedCount: matches.length, toggleCount: 0, toggledCount: 0, totalCount: reviewCards.length, targetPath: "", targetExpanded: false };
+      if (!target || (targetState !== "true" && targetState !== "false")) return result;
+
+      // 这一段保留官方原始路径用于精确选择，并通过官方按钮折叠其他文件。
+      // Preserve the raw official path for exact selection and collapse other files through official buttons.
+      result.targetPath = target.getAttribute("data-review-path");
+      result.targetExpanded = targetState === "true";
       for (const card of reviewCards) {
-        const matched = reviewDiffPathMatches(card.getAttribute("data-review-path"), filterTarget);
-        if (matched) matchedCount += 1;
         const toggle = getOfficialReviewFileToggle(card);
         const expandedState = toggle?.getAttribute(reviewFileExpandedAttribute) || "";
         if (expandedState !== "true" && expandedState !== "false") continue;
-        toggleCount += 1;
-        const expanded = expandedState === "true";
-        if (expanded !== matched) {
+        result.toggleCount += 1;
+        if ((expandedState === "true") !== (card === target)) {
           toggle.click();
-          toggledCount += 1;
+          result.toggledCount += 1;
         }
       }
-      return { matchedCount, toggleCount, toggledCount, totalCount: reviewCards.length };
+      return result;
     }
 
-    function scheduleEnvironmentReviewSingleFileToggleScope(filterTarget, file) {
+    function scheduleEnvironmentReviewSingleFileToggleScope(filterTarget, file, selectPath) {
       // 这一段用 MutationObserver 跟随官方异步加载，而不是猜固定延迟后再折叠。
       // Use a MutationObserver to follow official async loading instead of guessing a fixed delay.
       cancelEnvironmentReviewSingleFileScope();
       let stopped = false;
       let animationFrameId = 0;
       let matchedOnce = false;
+      let selectionAttempted = false;
       let timeoutId = 0;
       let observer = null;
 
       const applyScope = () => {
         if (stopped || signal.aborted) return { matchedCount: 0, toggleCount: 0, toggledCount: 0, totalCount: 0 };
         const result = applyEnvironmentReviewSingleFileToggleScope(filterTarget);
-        if (result.matchedCount > 0) matchedOnce = true;
+        // 这一段等官方折叠布局稳定后只定位一次，并传递未经改写的原始路径。
+        // Select once after native folding settles, passing the original path without rewriting it.
+        if (!selectionAttempted && result.targetExpanded && result.targetPath && result.toggledCount === 0) {
+          selectionAttempted = true;
+          try {
+            matchedOnce = selectPath(result.targetPath) === true;
+          } catch (error) {
+            console.warn("[Codex-Pro] official Review file selection failed", error?.message || error);
+          }
+        }
         return result;
       };
 
@@ -2496,24 +2550,27 @@
     }
 
     async function openOfficialSingleFileBranchReview(anchor, summary, file, sourceLabel, routeScope = null) {
-      // 这一段调用最新版官方 branch Review 入口，并在同一次调用中传入目标文件。
-      // Call the latest official branch Review entrypoint and pass the target file in the same operation.
-      if (!(anchor instanceof HTMLElement)) return false;
+      // 这一段由官方动作打开分支审查，目标路径由挂载后的官方卡片提供。
+      // Open branch review through the official action; mounted official cards provide the exact target path.
+      if (!(anchor instanceof HTMLElement) || !normalizePath(file?.path)) return false;
       const scope = routeScope || findWorkspaceRouteScope(anchor, summary);
       if (!scope) return false;
+      const generation = reviewOpenGeneration;
       try {
-        const reviewSidePanelTabsModule = await getReviewSidePanelTabsModule();
-        const openBranchReview = getThreadBranchReviewOpener(reviewSidePanelTabsModule);
-        if (!openBranchReview) return false;
-
-        // 这一段先转换为官方 Review 路径，再由官方入口原子地设置 branch、path 和 Review tab。
-        // Convert to the official Review path, then let the official entrypoint set branch, path, and Review tab atomically.
-        const reviewPath = getOfficialReviewSelectPath(summary, file);
-        if (!reviewPath) return false;
-        const opened = openBranchReview(scope, { path: reviewPath });
-        return Boolean(opened);
+        const module = await getReviewNavigationModule();
+        const openBranchReview = getThreadBranchReviewOpener(module);
+        if (!openBranchReview || signal.aborted || generation !== reviewOpenGeneration) return false;
+        if (!openBranchReview(scope)) return false;
+        return {
+          // 这一段在官方布局准备好后定位，过期点击或关闭功能后不再改动界面。
+          // Select after native layout is ready, ignoring superseded clicks or disabled features.
+          selectPath(reviewPath) {
+            if (signal.aborted || generation !== reviewOpenGeneration) return false;
+            return openBranchReview(scope, { path: reviewPath });
+          },
+        };
       } catch (error) {
-        console.warn(`[Codex-Pro] official branch review opener failed for ${sourceLabel}`, error?.message || error);
+        if (!signal.aborted) console.warn(`[Codex-Pro] official branch review opener failed for ${sourceLabel}`, error?.message || error);
         return false;
       }
     }
@@ -2559,8 +2616,9 @@
       hidePanel();
       clearReviewSingleFileScope();
       if (environmentReviewAnchor) {
-        if (await openEnvironmentWorkspaceFileReview(anchor, summary, file, openContext?.routeScope || null)) {
-          scheduleEnvironmentReviewSingleFileToggleScope(filterTarget, file);
+        const review = await openEnvironmentWorkspaceFileReview(anchor, summary, file, openContext?.routeScope || null);
+        if (review) {
+          scheduleEnvironmentReviewSingleFileToggleScope(filterTarget, file, review.selectPath);
           return;
         }
 

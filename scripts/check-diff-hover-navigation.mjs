@@ -293,8 +293,8 @@ assert(
   "environment diff hover should accept the current native button while keeping diffStats and sectionKey validation",
 );
 assert(
-  indexSource.includes("const reviewSidePanelTabsModulePattern") &&
-    indexSource.includes("thread-side-panel-tabs-"),
+  indexSource.includes("const reviewRuntimeModulePattern") &&
+    indexSource.includes("discoverReviewNavigationModule"),
   "environment review fast path should discover the latest official Review chunk by its structural asset pattern",
 );
 assert(
@@ -308,12 +308,12 @@ assert(
 assert(
   /function openEnvironmentWorkspaceFileReview/u.test(indexSource) &&
     /function getThreadBranchReviewOpener/u.test(indexSource) &&
-    /reviewSidePanelTabsModule\?\.openThreadBranchReviewSidePanelTab/u.test(indexSource) &&
+    /reviewNavigationModule\?\.openThreadBranchReviewSidePanelTab/u.test(indexSource) &&
     /openBranchReview\(scope, \{ path: reviewPath \}\)/u.test(indexSource),
   "environment review fast path should call the latest official branch Review entrypoint with the selected path",
 );
 assert(
-  !/review-navigation-model|reviewNavigationModule|getReviewSourceSetter|reviewSidePanelTabsModuleFallbackPaths/u.test(indexSource),
+  !/review-navigation-model|thread-side-panel-tabs-|getReviewSourceSetter|reviewSidePanelTabsModuleFallbackPaths/u.test(indexSource),
   "latest-only environment review should not retain removed Review state modules, short exports, or pinned chunk fallbacks",
 );
 const openWorkspaceFileReviewSource =
@@ -328,7 +328,7 @@ assert(
 assert(
   openWorkspaceFileReviewSource.includes("const environmentReviewAnchor =") &&
     openWorkspaceFileReviewSource.includes("const filterTarget = getReviewFilterTarget(summary, file)") &&
-    openWorkspaceFileReviewSource.includes("scheduleEnvironmentReviewSingleFileToggleScope(filterTarget, file)") &&
+    openWorkspaceFileReviewSource.includes("scheduleEnvironmentReviewSingleFileToggleScope(filterTarget, file, review.selectPath)") &&
     openWorkspaceFileReviewSource.includes("scheduleReviewSingleFileScope(filterTarget, file)"),
   "environment review should use official per-file toggles while non-environment review keeps the existing scope path",
 );
@@ -426,7 +426,7 @@ assert(
     /readEditedFileCardExternalDiffTarget\(element\)/u.test(indexSource) &&
     /openExternalDiff\(diffTarget\.summary, diffTarget\.file, externalDiffToolPath\)/u.test(indexSource) &&
     /openEditedFileCardSingleFileReview\(diffTarget\)/u.test(indexSource) &&
-    /scheduleEnvironmentReviewSingleFileToggleScope\(filterTarget, file\)/u.test(indexSource) &&
+    /scheduleEnvironmentReviewSingleFileToggleScope\(filterTarget, file, review\.selectPath\)/u.test(indexSource) &&
     /openOfficialSingleFileBranchReview\(anchor, summary, file, "edited file card"\)/u.test(indexSource),
   "official edited-file card rows should middle-click external Diff and fall back to single-file Review",
 );
@@ -441,5 +441,158 @@ assert(
   navigationUtilsManifestIndex >= 0 && diffHoverIndexManifestIndex >= 0 && navigationUtilsManifestIndex < diffHoverIndexManifestIndex,
   "injection manifest should load diff hover navigation-utils before index.js",
 );
+
+// 这一段直接执行生产发现逻辑，验证入口迁移、相似文件名排除和失败后重新发现。
+// Execute production discovery to verify moved entrypoints, lookalike filename rejection, and retry after failure.
+const reviewDiscoverySource = indexSource.slice(
+  indexSource.indexOf("async function discoverReviewNavigationModule()"),
+  indexSource.indexOf("function getWorkspaceRouteScopeFallbackHosts()"),
+).replace("await import(url)", "await importReviewModule(url)");
+const assetPathSource = indexSource.slice(
+  indexSource.indexOf("function normalizeCodexAssetModulePath("),
+  indexSource.indexOf("function normalizeWorkspaceFileModulePath("),
+);
+const reviewPatternDeclaration = indexSource.match(/const reviewRuntimeModulePattern = .*;/u)?.[0];
+const entryPatternDeclaration = indexSource.match(/const appEntryModulePattern = .*;/u)?.[0];
+assert(reviewPatternDeclaration && entryPatternDeclaration, "Review discovery declarations must be present");
+let reviewFixtureAvailable = false;
+const fetchedReviewAssets = [];
+const importedReviewAssets = [];
+const officialReviewModule = { openThreadBranchReviewSidePanelTab() { return true; } };
+const discoveryController = new AbortController();
+const discoverFixture = new Function("document", "performance", "fetch", "importReviewModule", "signal", "location", `
+  let reviewNavigationModulePromise = null;
+  ${reviewPatternDeclaration}
+  ${entryPatternDeclaration}
+  ${assetPathSource}
+  ${reviewDiscoverySource}
+  return getReviewNavigationModule;
+`)(
+  { scripts: [{ src: "app://-/assets/index-fixture.js" }] },
+  { getEntriesByType: () => [{ name: "app://-/assets/jsx-runtime-trap.js" }] },
+  async (url, options) => {
+    fetchedReviewAssets.push(url);
+    assert(options.signal === discoveryController.signal, "Review discovery must use the system cancellation signal");
+    const assets = {
+      "app://-/assets/index-fixture.js": reviewFixtureAvailable ? 'import "./app-initial-fixture.js";' : 'import "./thread-side-panel-tabs-old.js";',
+      "app://-/assets/app-initial-fixture.js": 'import "./jsx-runtime-trap.js"; import "./runtime-unrelated.js"; import "./runtime-renamed.js";',
+      "app://-/assets/runtime-unrelated.js": "export const unrelated = true;",
+      "app://-/assets/runtime-renamed.js": "export { action as openThreadBranchReviewSidePanelTab };",
+    };
+    return { ok: url in assets, text: async () => assets[url] };
+  },
+  async (url) => {
+    importedReviewAssets.push(url);
+    return officialReviewModule;
+  },
+  discoveryController.signal,
+  { href: "app://-/index.html" },
+);
+let discoveryFailed = false;
+try { await discoverFixture(); } catch { discoveryFailed = true; }
+assert(discoveryFailed, "missing official Review export must fail instead of selecting another action");
+reviewFixtureAvailable = true;
+const discoveredReviewModules = await Promise.all([discoverFixture(), discoverFixture()]);
+assert(discoveredReviewModules.every((module) => module === officialReviewModule), "concurrent discovery must resolve the official module");
+assert(importedReviewAssets.length === 1 && importedReviewAssets[0].endsWith("/runtime-renamed.js"), "only the verified Review runtime should be imported once");
+assert(!fetchedReviewAssets.some((url) => url.includes("jsx-runtime")), "jsx-runtime must not be mistaken for a Review runtime");
+
+// 这一段使用真实卡片选择函数验证原始 Windows 路径、展开状态、单次定位及观察器清理。
+// Exercise production card selection for raw Windows paths, expansion state, one-time selection, and observer cleanup.
+const reviewFrames = new Map();
+const reviewTimers = new Map();
+const reviewObservers = [];
+let reviewCallbackId = 0;
+class ReviewElement {
+  // 这一段建立最小官方卡片/按钮替身，不模拟布局或复制生产选择算法。
+  // Build minimal official card/toggle stand-ins without copying production selection or layout logic.
+  constructor(attributes = {}) { this.attributes = attributes; }
+  getAttribute(name) { return this.attributes[name] ?? null; }
+  querySelector() { return this.toggle ?? null; }
+  click() {
+    this.attributes["data-app-action-review-file-expanded"] = this.attributes["data-app-action-review-file-expanded"] === "true" ? "false" : "true";
+    for (const observer of reviewObservers) if (observer.active) observer.callback();
+  }
+}
+class ReviewObserver {
+  // 这一段记录观察器生命周期，便于检测替换和结束后仍存在的回调。
+  // Track observer lifecycle to detect callbacks surviving replacement or cleanup.
+  constructor(callback) { this.callback = callback; reviewObservers.push(this); }
+  observe() { this.active = true; }
+  disconnect() { this.active = false; }
+}
+const reviewCards = ["/C:/workspace/project/src/app.js", "/C:/workspace/project/src/other.js"].map((filePath, index) => {
+  const card = new ReviewElement({ "data-review-path": filePath });
+  card.toggle = new ReviewElement({ "data-app-action-review-file-expanded": index === 0 ? "false" : "true" });
+  return card;
+});
+const selectionSource = indexSource.slice(
+  indexSource.indexOf("function getOfficialReviewFileToggle("),
+  indexSource.indexOf("function syncReviewSingleFileScope("),
+);
+const selectionController = new AbortController();
+const fixtureSelection = new Function("document", "HTMLElement", "MutationObserver", "window", "signal", "reviewDiffPathMatches", `
+  const reviewFileToggleAttribute = "data-app-action-review-file-toggle";
+  const reviewFileExpandedAttribute = "data-app-action-review-file-expanded";
+  const environmentReviewSingleFileScopeTimeoutMs = 6000;
+  let environmentReviewSingleFileScopeCleanup = null;
+  function cancelEnvironmentReviewSingleFileScope() {
+    environmentReviewSingleFileScopeCleanup?.();
+    environmentReviewSingleFileScopeCleanup = null;
+  }
+  ${selectionSource}
+  return { schedule: scheduleEnvironmentReviewSingleFileToggleScope, cancel: cancelEnvironmentReviewSingleFileScope };
+`)(
+  { querySelectorAll: () => reviewCards, body: {} }, ReviewElement, ReviewObserver,
+  {
+    requestAnimationFrame(callback) { const id = ++reviewCallbackId; reviewFrames.set(id, callback); return id; },
+    cancelAnimationFrame(id) { reviewFrames.delete(id); },
+    setTimeout(callback) { const id = ++reviewCallbackId; reviewTimers.set(id, callback); return id; },
+    clearTimeout(id) { reviewTimers.delete(id); },
+  }, selectionController.signal, reviewDiffPathMatches,
+);
+const selectedOfficialPaths = [];
+fixtureSelection.schedule(
+  { absolutePath: "C:/workspace/project/src/app.js", relativePath: "src/app.js" },
+  { path: "src/app.js" },
+  (filePath) => { selectedOfficialPaths.push(filePath); return true; },
+);
+for (let attempt = 0; reviewFrames.size && attempt < 10; attempt += 1) {
+  const callbacks = Array.from(reviewFrames.values());
+  reviewFrames.clear();
+  for (const callback of callbacks) callback();
+}
+assert(selectedOfficialPaths.length === 1 && selectedOfficialPaths[0] === "/C:/workspace/project/src/app.js", "selection must use the untouched official path exactly once");
+assert(reviewCards[0].toggle.getAttribute("data-app-action-review-file-expanded") === "true", "target file must be expanded");
+assert(reviewCards[1].toggle.getAttribute("data-app-action-review-file-expanded") === "false", "other file must be collapsed");
+fixtureSelection.cancel();
+assert(reviewFrames.size === 0 && reviewTimers.size === 0 && reviewObservers.every((observer) => !observer.active), "cancelling Review selection must release observers and callbacks");
+
+// 这一段验证迟到的打开请求不会覆盖新点击，正常打开后只接受官方卡片提供的精确路径。
+// Verify delayed opens cannot override newer clicks and successful opens accept exact paths from official cards.
+const openReviewSource = indexSource.slice(
+  indexSource.indexOf("async function openOfficialSingleFileBranchReview("),
+  indexSource.indexOf("async function openEnvironmentWorkspaceFileReview("),
+);
+let resolveDelayedReview;
+const delayedReview = new Promise((resolve) => { resolveDelayedReview = resolve; });
+const openCalls = [];
+const openFixture = new Function("HTMLElement", "signal", "getReviewNavigationModule", `
+  let reviewOpenGeneration = 0;
+  const normalizePath = (value) => String(value || "");
+  const findWorkspaceRouteScope = () => ({});
+  const getThreadBranchReviewOpener = (module) => module.openThreadBranchReviewSidePanelTab;
+  ${openReviewSource}
+  return { open: openOfficialSingleFileBranchReview, invalidate() { reviewOpenGeneration += 1; } };
+`)(ReviewElement, new AbortController().signal, () => delayedReview);
+const staleOpen = openFixture.open(new ReviewElement(), {}, { path: "src/app.js" }, "fixture");
+openFixture.invalidate();
+resolveDelayedReview({ openThreadBranchReviewSidePanelTab(scope, options) { openCalls.push(options); return true; } });
+assert(await staleOpen === false && openCalls.length === 0, "a superseded open must not change official Review state");
+const currentOpen = await openFixture.open(new ReviewElement(), {}, { path: "src/app.js" }, "fixture");
+assert(currentOpen && openCalls.length === 1 && openCalls[0] === undefined, "initial open must not send a guessed path");
+assert(currentOpen.selectPath("/C:/workspace/project/src/app.js") === true && openCalls[1].path === "/C:/workspace/project/src/app.js", "official card path must reach the native action unchanged");
+openFixture.invalidate();
+assert(currentOpen.selectPath("/C:/workspace/project/src/app.js") === false && openCalls.length === 2, "stale selection callbacks must not move the current Review");
 
 console.log("diff hover navigation checks passed");
