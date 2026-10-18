@@ -120,6 +120,15 @@ pub fn module_source(path: &str) -> Option<&'static str> {
         "src/inject/systems/usage-panel/index.js" => {
             include_str!("../../../src/inject/systems/usage-panel/index.js")
         }
+        "src/inject/systems/chat-font-size/index.js" => {
+            include_str!("../../../src/inject/systems/chat-font-size/index.js")
+        }
+        "src/inject/systems/chat-font-size/settings.js" => {
+            include_str!("../../../src/inject/systems/chat-font-size/settings.js")
+        }
+        "src/inject/systems/usage-data/quota-source.js" => {
+            include_str!("../../../src/inject/systems/usage-data/quota-source.js")
+        }
         "src/inject/systems/context-usage-inline/index.js" => {
             include_str!("../../../src/inject/systems/context-usage-inline/index.js")
         }

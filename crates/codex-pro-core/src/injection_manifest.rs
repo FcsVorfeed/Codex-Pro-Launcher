@@ -50,6 +50,10 @@ pub const SETTINGS_MENU_BUILTIN_SECTION_MODULES: &[&str] = &[
 /// Sections contributed to settings-menu by other systems.
 pub const SETTINGS_MENU_SECTION_MODULES: &[SettingsSectionModule] = &[
     SettingsSectionModule {
+        owner_system: "chat-font-size",
+        path: "src/inject/systems/chat-font-size/settings.js",
+    },
+    SettingsSectionModule {
         owner_system: "startup-sidebar",
         path: "src/inject/systems/startup-sidebar/settings.js",
     },
@@ -107,6 +111,10 @@ pub const SETTINGS_MENU_SECTION_MODULES: &[SettingsSectionModule] = &[
 /// Injectable feature-system list.
 pub const INJECTABLE_SYSTEMS: &[InjectableSystem] = &[
     InjectableSystem {
+        name: "chat-font-size",
+        modules: &["src/inject/systems/chat-font-size/index.js"],
+    },
+    InjectableSystem {
         name: "legacy-cleanup",
         modules: &["src/inject/systems/legacy-cleanup/index.js"],
     },
@@ -140,6 +148,7 @@ pub const INJECTABLE_SYSTEMS: &[InjectableSystem] = &[
     InjectableSystem {
         name: "usage-panel",
         modules: &[
+            "src/inject/systems/usage-data/quota-source.js",
             "src/inject/systems/usage-panel/format.js",
             "src/inject/systems/usage-panel/usage-api.js",
             "src/inject/systems/usage-panel/view.js",
@@ -148,7 +157,10 @@ pub const INJECTABLE_SYSTEMS: &[InjectableSystem] = &[
     },
     InjectableSystem {
         name: "context-usage-inline",
-        modules: &["src/inject/systems/context-usage-inline/index.js"],
+        modules: &[
+            "src/inject/systems/usage-data/quota-source.js",
+            "src/inject/systems/context-usage-inline/index.js",
+        ],
     },
     InjectableSystem {
         name: "chat-width-resizer",

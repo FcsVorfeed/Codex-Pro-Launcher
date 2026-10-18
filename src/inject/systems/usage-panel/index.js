@@ -59,26 +59,18 @@
       view.renderEnvironmentUsageRows(rows);
     };
 
-    // 这一段刷新用量数据并渲染展示，失败时显示统一状态。
-    // Refresh usage data and render rows, showing one consistent state on failure.
-    const refresh = () => {
-      api
-        .fetchUsage(controller.signal)
-        .then((usage) => {
-          latestUsageSnapshot = usage;
-          renderRowsFromSnapshot();
-        })
-        .catch((error) => {
-          if (error?.name === "AbortError") return;
-          latestUsageSnapshot = null;
-          const rows = buildRows(null);
-          const unavailableText = runtime.i18n.t("common.status.notAvailable");
-          view.renderUsageRows(root, rows);
-          view.renderEnvironmentUsageRows(rows);
-          view.renderUsageStatus(root, unavailableText);
-          view.renderEnvironmentUsageStatus(unavailableText);
-        });
-    };
+    // 这一段订阅共享额度源，与输入框共用请求；关闭面板不会停止其他消费者。
+    // Subscribe to shared quota requests; disabling the panel leaves other consumers running.
+    runtime.systemModules.usageData.subscribe((usage) => {
+      if (controller.signal.aborted) return;
+      latestUsageSnapshot = usage;
+      renderRowsFromSnapshot();
+      if (!usage) {
+        const text = runtime.i18n.t("common.status.notAvailable");
+        view.renderUsageStatus(root, text);
+        view.renderEnvironmentUsageStatus(text);
+      }
+    }, controller.signal);
 
     const refreshResetCredits = () => {
       const latestSettings = settings?.getSettings?.() || {};
@@ -167,22 +159,11 @@
           }
         });
     };
-    let intervalId = 0;
     let pingIntervalId = 0;
     let resetCreditsIntervalId = 0;
     let todayTokenIntervalId = 0;
     const unsubscribeTokenUsage = api.bindConversationTokenUsageUpdates?.(() => renderRowsFromSnapshot(), controller.signal);
     const unsubscribeCurrentThread = api.bindCurrentThreadChange?.(() => renderRowsFromSnapshot(), controller.signal);
-
-    // 这一段按设置中的刷新间隔重建定时器，保存设置后可立即切换周期。
-    // Rebuild the timer from the configured interval so saved settings take effect immediately.
-    const restartRefreshTimer = (shouldRefreshNow = false) => {
-      window.clearInterval(intervalId);
-      const refreshSeconds = settings?.getSettings?.()?.usageRefreshSeconds || 60;
-      const refreshMs = refreshSeconds * 1000;
-      intervalId = window.setInterval(refresh, refreshMs);
-      if (shouldRefreshNow) refresh();
-    };
 
     // 这一段按设置重建重置次数定时器；关闭该行时立即清掉快照并重渲染。
     // Rebuild the reset-credit timer from settings; clear the snapshot immediately when disabled.
@@ -239,7 +220,6 @@
       if (shouldRefreshNow) refreshTodayTokenUsage();
     };
     const unsubscribeSettings = settings?.subscribe?.(() => {
-      restartRefreshTimer(true);
       restartResetCreditsTimer(true);
       restartPingTimer(true);
       restartTodayTokenTimer(true);
@@ -253,7 +233,6 @@
     controller.signal.addEventListener(
       "abort",
       () => {
-        window.clearInterval(intervalId);
         window.clearInterval(pingIntervalId);
         window.clearInterval(resetCreditsIntervalId);
         window.clearInterval(todayTokenIntervalId);
@@ -265,7 +244,6 @@
       { once: true },
     );
 
-    restartRefreshTimer(true);
     restartResetCreditsTimer(true);
     restartPingTimer(true);
     restartTodayTokenTimer(true);

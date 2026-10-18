@@ -84,6 +84,10 @@
     contextUsageRingWarningColor: "#f59e0b",
     contextUsageRingWarningThreshold: 60,
     chatLineHoverDisplayMode: defaultChatLineHoverDisplayMode,
+    // 聊天字号默认增加 2px；Chat font defaults to a 2px offset.
+    chatFontSizeOffset: 2,
+    enableChatFontSize: true,
+    showWeeklyQuotaInline: true,
     chatWidthMode: defaultChatWidthMode,
     chatWidthPixels: defaultChatWidthPixels,
     diffHoverFileOpenMode: "review",
@@ -844,7 +848,17 @@
     }
   }
 
+  // 只接受约定的三个增量，异常输入恢复默认值。
+  // Accept only the three supported offsets; invalid input restores the default.
+  function normalizeChatFontSizeOffset(value) {
+    const offset = Number(value);
+    return value !== null && value !== "" && [0, 1, 2].includes(offset) ? offset : defaultSettings.chatFontSizeOffset;
+  }
+
   const settingFields = [
+    { key: "chatFontSizeOffset", normalize: normalizeChatFontSizeOffset },
+    { key: "enableChatFontSize", normalize: (value) => normalizeEnabledSetting(value, true) },
+    { key: "showWeeklyQuotaInline", normalize: (value) => normalizeEnabledSetting(value, true) },
     { key: "backgroundWallpaperImages", normalize: normalizeBackgroundWallpaperImages },
     { key: "backgroundWallpaperIntervalSeconds", normalize: normalizeBackgroundWallpaperIntervalSeconds },
     { key: "backgroundWallpaperOpacity", normalize: normalizeBackgroundWallpaperOpacity },

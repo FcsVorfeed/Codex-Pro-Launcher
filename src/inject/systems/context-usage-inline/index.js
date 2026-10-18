@@ -17,6 +17,8 @@
   const percentOnlyRetryLimit = 20;
   const contextUsageCandidateSelector = '[role="img"], svg';
   let lastTonedRingIcon = null;
+  // 周额度只保留展示值；Retain display-only weekly quota state.
+  let weeklyQuota = { visible: true, text: "--%" };
 
   function installStyles() {
     // 这一段安装输入框内联上下文用量样式，跟随 Codex 原生页脚文字风格。
@@ -27,7 +29,7 @@
         ${badgeSelector} {
           display: inline-flex;
           min-width: 0;
-          max-width: 142px;
+          max-width: 100%;
           align-items: center;
           gap: 4px;
           overflow: hidden;
@@ -39,6 +41,14 @@
           pointer-events: none;
           user-select: none;
         }
+        ${badgeSelector} .codex-pro-weekly-quota {
+          flex: 0 0 auto;
+          border-inline-end: 1px solid currentColor;
+          padding-inline-end: 6px;
+          margin-inline-end: 2px;
+          pointer-events: auto;
+        }
+        ${badgeSelector} .codex-pro-weekly-quota[hidden] { display: none; }
         ${badgeSelector} .codex-pro-context-usage-counts {
           flex: 0 1 auto;
           min-width: 0;
@@ -384,7 +394,11 @@
     const percent = document.createElement("span");
     counts.className = "codex-pro-context-usage-counts";
     percent.className = "codex-pro-context-usage-percent";
-    badge.append(counts, percent);
+    // 周额度位于上下文左侧，边框作为分隔线，不改变原生圆圈交互。
+    // Put weekly quota left of context; use a border divider without changing native ring interaction.
+    const weekly = document.createElement("span");
+    weekly.className = "codex-pro-weekly-quota";
+    badge.append(weekly, counts, percent);
     return badge;
   }
 
@@ -394,7 +408,7 @@
     document.querySelector(badgeSelector)?.remove();
   }
 
-  function renderBadge(badge, parts, target) {
+  function renderBadge(badge, parts, currentSettings) {
     // 这一段只在文本变化时写 DOM，降低 MutationObserver 自触发次数。
     // Write DOM only when text changes to reduce self-triggered MutationObserver work.
     const countsElement = badge.querySelector(".codex-pro-context-usage-counts");
@@ -406,7 +420,17 @@
 
     // 这一段给辅助技术和调试保留完整状态文本，并清理旧版紧凑隐藏标记。
     // Keep the full status text for accessibility/debugging and clear the old compact-hide marker.
-    const fullText = [parts.counts, parts.percent].filter(Boolean).join(" ");
+    // 这一段仅展示本周剩余，未知值不转换成零或满额；无周窗口时连同分隔线隐藏。
+    // Show weekly remaining only; unknown is never zero/full, and absent weekly windows hide the divider too.
+    const weekly = badge.querySelector(".codex-pro-weekly-quota");
+    const showWeekly = currentSettings?.showWeeklyQuotaInline !== false && weeklyQuota.visible;
+    const weeklyLabel = showWeekly ? runtime.i18n.t("contextUsage.weeklyRemaining", { percent: weeklyQuota.text }) : "";
+    if (weekly) {
+      weekly.hidden = !showWeekly;
+      if (weekly.textContent !== weeklyQuota.text) weekly.textContent = weeklyQuota.text;
+      if (weekly.title !== weeklyLabel) weekly.title = weeklyLabel;
+    }
+    const fullText = [weeklyLabel, parts.counts, parts.percent].filter(Boolean).join(" ");
     const ariaLabel = fullText;
     if (badge.getAttribute("aria-label") !== ariaLabel) badge.setAttribute("aria-label", ariaLabel);
     badge.removeAttribute("data-codex-pro-context-usage-compact");
@@ -475,7 +499,7 @@
     if (badge.parentElement !== target.container || badge.nextElementSibling !== target.anchor) {
       target.container.insertBefore(badge, target.anchor);
     }
-    renderBadge(badge, parts, target);
+    renderBadge(badge, parts, currentSettings);
 
     // 这一段在只有百分比或占位数据时短暂复查，接住 Codex 稍后才挂上的 usedTokens/contextWindow。
     // Briefly retry percent-only or placeholder data so late usedTokens/contextWindow props can upgrade the display.
@@ -527,8 +551,21 @@
 
     // 这一段把设置模块里的开关和小数位同步到当前系统，并立即刷新显示。
     // Sync the display switch and decimal places from settings into this system and refresh immediately.
+    let unsubscribeQuota = null;
     const syncSettings = (nextSettings) => {
       currentSettings = nextSettings || settings?.getSettings?.() || {};
+      // 这一段按显示开关订阅共享额度，关闭后释放消费者，不依赖用量面板开关。
+      // Subscribe by display settings and release when hidden, independently of the usage-panel switch.
+      const showWeekly = currentSettings.showContextUsageInline !== false && currentSettings.showWeeklyQuotaInline !== false;
+      if (showWeekly && !unsubscribeQuota) {
+        unsubscribeQuota = runtime.systemModules.usageData.subscribe((usage) => {
+          weeklyQuota = runtime.systemModules.usageData.weeklyRemaining(usage);
+          scheduleSync("quota");
+        }, controller.signal);
+      } else if (!showWeekly && unsubscribeQuota) {
+        unsubscribeQuota();
+        unsubscribeQuota = null;
+      }
       scheduleSync("settings");
     };
 

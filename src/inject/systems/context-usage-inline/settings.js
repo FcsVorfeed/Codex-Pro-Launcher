@@ -21,6 +21,7 @@
     settingKeys: [
       "enableContextUsageInline",
       "showContextUsageInline",
+      "showWeeklyQuotaInline",
       "contextUsageDecimalPlaces",
       "enableContextUsageRingColors",
       "contextUsageRingWarningThreshold",
@@ -36,6 +37,7 @@
       contextUsageRingWarningThreshold: ["enableContextUsageInline", "enableContextUsageRingColors"],
       enableContextUsageRingColors: "enableContextUsageInline",
       showContextUsageInline: "enableContextUsageInline",
+      showWeeklyQuotaInline: ["enableContextUsageInline", "showContextUsageInline"],
     },
     sourcePath: "src/inject/systems/context-usage-inline/settings.js",
     sourceSystem: "context-usage-inline",
@@ -53,6 +55,11 @@
           helpKey: "settings.contextUsage.show.help",
           key: "showContextUsageInline",
           labelKey: "settings.contextUsage.show.label",
+        })}
+        ${controls.renderSwitchField({
+          helpKey: "settings.contextUsage.weekly.help",
+          key: "showWeeklyQuotaInline",
+          labelKey: "settings.contextUsage.weekly.label",
         })}
         ${controls.renderNumberField({
           helpKey: "settings.contextUsage.decimals.help",

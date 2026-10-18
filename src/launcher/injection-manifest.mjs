@@ -36,6 +36,10 @@ export const settingsMenuBuiltinSectionModules = [
 
 export const settingsMenuSectionModules = [
   {
+    ownerSystem: "chat-font-size",
+    path: ["src", "inject", "systems", "chat-font-size", "settings.js"],
+  },
+  {
     ownerSystem: "startup-sidebar",
     path: ["src", "inject", "systems", "startup-sidebar", "settings.js"],
   },
@@ -91,6 +95,10 @@ export const settingsMenuSectionModules = [
 
 export const injectableSystems = [
   {
+    name: "chat-font-size",
+    modules: [["src", "inject", "systems", "chat-font-size", "index.js"]],
+  },
+  {
     name: "legacy-cleanup",
     modules: [
       ["src", "inject", "systems", "legacy-cleanup", "index.js"],
@@ -134,6 +142,7 @@ export const injectableSystems = [
   {
     name: "usage-panel",
     modules: [
+      ["src", "inject", "systems", "usage-data", "quota-source.js"],
       ["src", "inject", "systems", "usage-panel", "format.js"],
       ["src", "inject", "systems", "usage-panel", "usage-api.js"],
       ["src", "inject", "systems", "usage-panel", "view.js"],
@@ -143,6 +152,7 @@ export const injectableSystems = [
   {
     name: "context-usage-inline",
     modules: [
+      ["src", "inject", "systems", "usage-data", "quota-source.js"],
       ["src", "inject", "systems", "context-usage-inline", "index.js"],
     ],
   },

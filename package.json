@@ -9,7 +9,8 @@
   },
   "type": "module",
   "scripts": {
-    "check": "npm run check:current-client && npm run check:release-version && npm run check:settings && npm run check:update-check && npm run check:usage-panel && npm run check:chat-width-resizer && npm run check:chat-line-hover && npm run check:diff-hover-navigation && npm run check:file-tree && npm run check:conversation-archive-sidebar && npm run check:native-thread-drag-to-chat && npm run check:split-items-hotpath && npm run check:native-bridge && npm run check:rust-bridge && npm run doctor",
+    "check": "npm run check:chat-enhancements && npm run check:current-client && npm run check:release-version && npm run check:settings && npm run check:update-check && npm run check:usage-panel && npm run check:chat-width-resizer && npm run check:chat-line-hover && npm run check:diff-hover-navigation && npm run check:file-tree && npm run check:conversation-archive-sidebar && npm run check:native-thread-drag-to-chat && npm run check:split-items-hotpath && npm run check:native-bridge && npm run check:rust-bridge && npm run doctor",
+    "check:chat-enhancements": "node scripts/check-chat-enhancements.mjs",
     "check:current-client": "node scripts/check-current-client-compat.mjs",
     "check:conversation-archive-sidebar": "node scripts/check-conversation-archive-sidebar.mjs",
     "check:diff-hover-navigation": "node scripts/check-diff-hover-navigation.mjs",

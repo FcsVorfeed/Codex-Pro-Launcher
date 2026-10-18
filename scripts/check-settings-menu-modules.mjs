@@ -129,6 +129,13 @@ const expectedCloudSyncBlocks = [
 
 const expectedSections = [
   {
+    id: "chat-font-size",
+    modulePath: ["src", "inject", "systems", "chat-font-size", "settings.js"],
+    ownerSystem: "chat-font-size",
+    settingKeys: ["enableChatFontSize", "chatFontSizeOffset"],
+    fieldDependencies: { chatFontSizeOffset: "enableChatFontSize" },
+  },
+  {
     id: "startup-sidebar",
     modulePath: ["src", "inject", "systems", "startup-sidebar", "settings.js"],
     ownerSystem: "startup-sidebar",
@@ -178,6 +185,7 @@ const expectedSections = [
     settingKeys: [
       "enableContextUsageInline",
       "showContextUsageInline",
+      "showWeeklyQuotaInline",
       "contextUsageDecimalPlaces",
       "enableContextUsageRingColors",
       "contextUsageRingWarningThreshold",
@@ -193,6 +201,7 @@ const expectedSections = [
       contextUsageRingWarningThreshold: ["enableContextUsageInline", "enableContextUsageRingColors"],
       enableContextUsageRingColors: "enableContextUsageInline",
       showContextUsageInline: "enableContextUsageInline",
+      showWeeklyQuotaInline: ["enableContextUsageInline", "showContextUsageInline"],
     },
   },
   {

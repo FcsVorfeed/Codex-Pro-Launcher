@@ -71,12 +71,6 @@
     };
   }
 
-  function fetchUsage(signal) {
-    // 这一段只封装用量系统需要的内部接口，避免业务代码直接关心 fetch bridge 细节。
-    // Wrap only the internal endpoint needed by the usage system so feature code stays focused.
-    return runtime.fetchBridge.requestJson("/wham/usage", { signal });
-  }
-
   function normalizeResetCreditExpiresAt(value) {
     // 这一段只接受可解析的过期时间，并统一成 ISO 字符串供展示层格式化。
     // Accept only parseable expiry values and normalize them to ISO strings for the display layer.
@@ -579,7 +573,6 @@
     fetchResetCredits,
     fetchStatusPing,
     fetchTodayTokenUsage,
-    fetchUsage,
     readConversationTokenUsage,
   };
 })();
