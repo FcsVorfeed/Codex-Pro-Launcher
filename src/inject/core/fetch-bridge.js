@@ -9,25 +9,27 @@
   runtime.controllers["http-fetch"] = controller;
   let clientPromise = null;
 
+  // 从当前官方入口发现新版 HTTP 客户端，不保留旧版模块路径。
+  // Discover the current official HTTP client without retaining the old module path.
   async function discoverHttpClient() {
-    // 这一段只读取当前页面的官方入口，动态解析共享模块路径，不固定构建 hash。
-    // Read only the current official entry scripts and discover shared modules without fixed build hashes.
+    // 这一段只解析入口里的 app-initial 相对模块引用，不固定构建 hash。
+    // Parse only app-initial relative module references in the entry without fixed build hashes.
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(12_000)]);
     const entries = Array.from(document.scripts, (script) => script.src)
       .filter((url) => /^app:\/\/-\/assets\/index-[\w-]+\.js$/.test(url));
-    const sharedUrls = new Set();
+    const initialUrls = new Set();
     for (const entry of entries.slice(0, 3)) {
       const response = await fetch(entry, { signal });
       if (!response.ok) throw new Error("Official application entry is unavailable");
       const source = await response.text();
-      for (const match of source.matchAll(/app-shared-[\w-]+\.js/g)) {
-        sharedUrls.add(new URL(match[0], entry).href);
+      for (const match of source.matchAll(/["'`]\.\/(app-initial-[\w-]+\.js)(?=["'`])/g)) {
+        initialUrls.add(new URL(match[1], entry).href);
       }
     }
 
     // 这一段按官方类的自有方法识别唯一客户端，不调用任意导出或代理服务。
     // Identify the unique official client by its own methods without invoking arbitrary exports or service proxies.
-    for (const url of Array.from(sharedUrls).slice(0, 3)) {
+    for (const url of Array.from(initialUrls).slice(0, 3)) {
       signal.throwIfAborted();
       const module = await import(url);
       const candidates = Object.values(module).filter((value) => (

@@ -12,10 +12,12 @@ const runtimeSource = await read("src/inject/core/runtime.js");
 const cloudSource = await read("src/inject/systems/settings-menu/cloud-sync.js");
 const cloudSectionSource = await read("src/inject/systems/settings-menu/sections/cloud-sync.js");
 
-function createHttpHarness({ failDiscovery = false, delayDiscovery = false } = {}) {
+// 构造官方请求客户端宿主，验证真实发现逻辑及请求生命周期。
+// Build the official-client host to exercise production discovery and request lifecycles.
+function createHttpHarness({ failDiscovery = false, delayDiscovery = false, legacyEntry = false } = {}) {
   // 这一段模拟改过 hash 和导出名的官方模块，记录发现次数、响应流释放和取消信号。
   // Simulate changed hashes and export names, recording discovery, stream disposal, and cancellation.
-  const stats = { discoveries: 0, calls: 0, cancelled: 0, lastSignal: null };
+  const stats = { discoveries: 0, calls: 0, cancelled: 0, lastSignal: null, entrySource: legacyEntry ? 'import "./app-shared-old-hash.js";' : 'const deps = ["./app-shared-new-hash.js", "./other-app-initial-decoy.js", "./app-initial-new-hash.js"];' };
   const runtime = { controllers: {} };
   const client = {
     async fetch(url, options) {
@@ -50,10 +52,10 @@ function createHttpHarness({ failDiscovery = false, delayDiscovery = false } = {
       if (delayDiscovery) return new Promise((resolve, reject) => {
         signal.addEventListener("abort", () => reject(signal.reason), { once: true });
       });
-      return { ok: !failDiscovery, text: async () => 'import "./app-shared-new-hash.js";' };
+      return { ok: !failDiscovery, text: async () => stats.entrySource };
     },
     loadOfficialModule: async (url) => {
-      assert.equal(url, "app://-/assets/app-shared-new-hash.js");
+      assert.equal(url, "app://-/assets/app-initial-new-hash.js");
       return { changedExportName: OfficialClient, unrelated: { getInstance() { throw new Error("Unrelated export invoked"); } } };
     },
   });
@@ -79,6 +81,14 @@ const failed = createHttpHarness({ failDiscovery: true });
 await assert.rejects(failed.runtime.fetchBridge.requestOk("/data"), /entry is unavailable/);
 await assert.rejects(failed.runtime.fetchBridge.requestOk("/data"), /entry is unavailable/);
 assert.equal(failed.stats.discoveries, 2);
+// 这一段拒绝旧版入口，并确认模块缺失后的下一次刷新能重新发现新版入口。
+// Reject legacy entries and allow discovery to recover on the next refresh after a missing module.
+const legacy = createHttpHarness({ legacyEntry: true });
+await assert.rejects(legacy.runtime.fetchBridge.requestOk("/data"), /client is unavailable/);
+assert.equal(legacy.stats.calls, 0);
+legacy.stats.entrySource = 'import "./app-initial-new-hash.js";';
+assert.equal((await legacy.runtime.fetchBridge.requestJson("/data")).result, 42);
+assert.equal(legacy.stats.discoveries, 2);
 const slow = createHttpHarness({ delayDiscovery: true });
 // 这一段保留短期事件循环句柄，确保 Node 的非引用超时信号也能被验证。
 // Keep a short event-loop handle alive so Node's unreferenced timeout signal can be tested.
