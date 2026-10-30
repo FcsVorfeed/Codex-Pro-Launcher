@@ -14,10 +14,14 @@ const cloudSectionSource = await read("src/inject/systems/settings-menu/sections
 
 // 构造官方请求客户端宿主，验证真实发现逻辑及请求生命周期。
 // Build the official-client host to exercise production discovery and request lifecycles.
-function createHttpHarness({ failDiscovery = false, delayDiscovery = false, legacyEntry = false } = {}) {
+function createHttpHarness({ failDiscovery = false, delayDiscovery = false, legacyEntry = false, failMain = false, delayMain = false } = {}) {
   // 这一段模拟改过 hash 和导出名的官方模块，记录发现次数、响应流释放和取消信号。
   // Simulate changed hashes and export names, recording discovery, stream disposal, and cancellation.
-  const stats = { discoveries: 0, calls: 0, cancelled: 0, lastSignal: null, entrySource: legacyEntry ? 'import "./app-shared-old-hash.js";' : 'const deps = ["./app-shared-new-hash.js", "./other-app-initial-decoy.js", "./app-initial-new-hash.js"];' };
+  const stats = {
+    discoveries: 0, mainReads: 0, calls: 0, cancelled: 0, lastSignal: null,
+    entrySource: legacyEntry ? 'import "./app-initial-old-hash.js";' : 'import "./other-app-main-decoy.js"; import "./app-main-next-hash.js"; import "./app-main-next-hash.js";',
+    mainSource: 'import "./app-shared-new-hash.js"; import "./other-app-initial-decoy.js"; import "./app-initial-new-hash.js";',
+  };
   const runtime = { controllers: {} };
   const client = {
     async fetch(url, options) {
@@ -48,11 +52,18 @@ function createHttpHarness({ failDiscovery = false, delayDiscovery = false, lega
     document: { scripts: [{ src: "app://-/assets/index-fixture-next.js" }] },
     AbortController, AbortSignal, URL, console,
     fetch: async (url, { signal }) => {
-      stats.discoveries += 1;
-      if (delayDiscovery) return new Promise((resolve, reject) => {
+      // 这一段分别模拟入口和主模块，错误地址直接失败，防止相似名称或递归扫描混入。
+      // Model entry and main modules separately; reject other URLs to catch lookalikes and recursive scans.
+      const isEntry = url === "app://-/assets/index-fixture-next.js";
+      if (isEntry) stats.discoveries += 1;
+      else {
+        assert.equal(url, "app://-/assets/app-main-next-hash.js");
+        stats.mainReads += 1;
+      }
+      if ((isEntry && delayDiscovery) || (!isEntry && delayMain)) return new Promise((resolve, reject) => {
         signal.addEventListener("abort", () => reject(signal.reason), { once: true });
       });
-      return { ok: !failDiscovery, text: async () => stats.entrySource };
+      return { ok: isEntry ? !failDiscovery : !failMain, text: async () => isEntry ? stats.entrySource : stats.mainSource };
     },
     loadOfficialModule: async (url) => {
       assert.equal(url, "app://-/assets/app-initial-new-hash.js");
@@ -70,6 +81,7 @@ const responses = await Promise.all([http.runtime.fetchBridge.requestJson("/data
 assert.equal(responses[0].result, 42);
 assert.equal(responses[1].status, 200);
 assert.equal(http.stats.discoveries, 1);
+assert.equal(http.stats.mainReads, 1);
 assert.equal(http.stats.cancelled, 2);
 await assert.rejects(http.runtime.fetchBridge.requestOk("/failure"), /HTTP 503/);
 const pending = http.runtime.fetchBridge.requestOk("/pending");
@@ -86,9 +98,27 @@ assert.equal(failed.stats.discoveries, 2);
 const legacy = createHttpHarness({ legacyEntry: true });
 await assert.rejects(legacy.runtime.fetchBridge.requestOk("/data"), /client is unavailable/);
 assert.equal(legacy.stats.calls, 0);
-legacy.stats.entrySource = 'import "./app-initial-new-hash.js";';
+legacy.stats.entrySource = 'import "./app-main-next-hash.js";';
 assert.equal((await legacy.runtime.fetchBridge.requestJson("/data")).result, 42);
 assert.equal(legacy.stats.discoveries, 2);
+// 这一段覆盖新增主模块读取失败、缺失引用后恢复及取消，避免更新后静默停在未知额度。
+// Cover main-module failures, recovery after missing references, and cancellation so updates cannot silently strand quota.
+const brokenMain = createHttpHarness({ failMain: true });
+await assert.rejects(brokenMain.runtime.fetchBridge.requestOk("/data"), /main module is unavailable/);
+assert.equal(brokenMain.stats.calls, 0);
+const missingInitial = createHttpHarness();
+missingInitial.stats.mainSource = 'import "./app-shared-new-hash.js";';
+await assert.rejects(missingInitial.runtime.fetchBridge.requestOk("/data"), /client is unavailable/);
+missingInitial.stats.mainSource = 'import "./app-initial-new-hash.js";';
+assert.equal((await missingInitial.runtime.fetchBridge.requestOk("/data")).status, 200);
+assert.equal(missingInitial.stats.mainReads, 2);
+const pendingMain = createHttpHarness({ delayMain: true });
+const pendingMainRequest = pendingMain.runtime.fetchBridge.requestOk("/data");
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(pendingMain.stats.mainReads, 1);
+pendingMain.runtime.controllers["http-fetch"].abort();
+await assert.rejects(pendingMainRequest, { name: "AbortError" });
+assert.equal(pendingMain.stats.calls, 0);
 const slow = createHttpHarness({ delayDiscovery: true });
 // 这一段保留短期事件循环句柄，确保 Node 的非引用超时信号也能被验证。
 // Keep a short event-loop handle alive so Node's unreferenced timeout signal can be tested.

@@ -12,18 +12,31 @@
   // 从当前官方入口发现新版 HTTP 客户端，不保留旧版模块路径。
   // Discover the current official HTTP client without retaining the old module path.
   async function discoverHttpClient() {
-    // 这一段只解析入口里的 app-initial 相对模块引用，不固定构建 hash。
-    // Parse only app-initial relative module references in the entry without fixed build hashes.
+    // 这一段只沿当前 index → app-main → app-initial 启动链发现模块，不固定构建 hash。
+    // Follow only the current index → app-main → app-initial startup chain without fixed build hashes.
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(12_000)]);
     const entries = Array.from(document.scripts, (script) => script.src)
       .filter((url) => /^app:\/\/-\/assets\/index-[\w-]+\.js$/.test(url));
+    const mainUrls = new Set();
     const initialUrls = new Set();
     for (const entry of entries.slice(0, 3)) {
       const response = await fetch(entry, { signal });
       if (!response.ok) throw new Error("Official application entry is unavailable");
       const source = await response.text();
+      for (const match of source.matchAll(/["'`]\.\/(app-main-[\w-]+\.js)(?=["'`])/g)) {
+        mainUrls.add(new URL(match[1], entry).href);
+      }
+    }
+
+    // 这一段有界读取主模块的真实引用；共享取消信号，不递归扫描其他资源。
+    // Read bounded main-module references with the shared abort signal, without recursively scanning other resources.
+    for (const mainUrl of Array.from(mainUrls).slice(0, 3)) {
+      signal.throwIfAborted();
+      const response = await fetch(mainUrl, { signal });
+      if (!response.ok) throw new Error("Official application main module is unavailable");
+      const source = await response.text();
       for (const match of source.matchAll(/["'`]\.\/(app-initial-[\w-]+\.js)(?=["'`])/g)) {
-        initialUrls.add(new URL(match[1], entry).href);
+        initialUrls.add(new URL(match[1], mainUrl).href);
       }
     }
 
