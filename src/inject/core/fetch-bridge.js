@@ -9,51 +9,46 @@
   runtime.controllers["http-fetch"] = controller;
   let clientPromise = null;
 
-  // 从当前官方入口发现新版 HTTP 客户端，不保留旧版模块路径。
-  // Discover the current official HTTP client without retaining the old module path.
+  // 从当前页面的官方模块加载器发现已初始化的 HTTP 客户端。
+  // Discover the initialized HTTP client through the current page's official module loader.
   async function discoverHttpClient() {
-    // 这一段只沿当前 index → app-main → app-initial 启动链发现模块，不固定构建 hash。
-    // Follow only the current index → app-main → app-initial startup chain without fixed build hashes.
+    // 这一段只导入页面已声明的官方 ESM 脚本，不依赖 chunk 名称、hash 或引用层级。
+    // Import only declared official ESM scripts without depending on chunk names, hashes, or import depth.
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(12_000)]);
-    const entries = Array.from(document.scripts, (script) => script.src)
-      .filter((url) => /^app:\/\/-\/assets\/index-[\w-]+\.js$/.test(url));
-    const mainUrls = new Set();
-    const initialUrls = new Set();
-    for (const entry of entries.slice(0, 3)) {
-      const response = await fetch(entry, { signal });
-      if (!response.ok) throw new Error("Official application entry is unavailable");
-      const source = await response.text();
-      for (const match of source.matchAll(/["'`]\.\/(app-main-[\w-]+\.js)(?=["'`])/g)) {
-        mainUrls.add(new URL(match[1], entry).href);
+    const entries = [...new Set(Array.from(document.scripts)
+      .filter((script) => script.type === "module" && /^app:\/\/-\/assets\/[\w.-]+\.js$/.test(script.src))
+      .map((script) => script.src))];
+    const loaders = new Set();
+    const candidates = new Set();
+    for (const url of entries.slice(0, 8)) {
+      signal.throwIfAborted();
+      const module = await waitWithSignal(import(url), signal);
+      const loader = module.__webpack_require__;
+      if (typeof loader !== "function" || !loader.m || !loader.c || loaders.has(loader)) continue;
+      loaders.add(loader);
+
+      // 这一段只筛选缓存模块的工厂特征，再检查其现有导出；绝不调用工厂或初始化其他模块。
+      // Filter cached module factories by signature, then inspect existing exports; never invoke factories or initialize modules.
+      for (const [id, cached] of Object.entries(loader.c)) {
+        signal.throwIfAborted();
+        const factory = loader.m[id];
+        if (!cached || cached.error || typeof factory !== "function") continue;
+        const source = Function.prototype.toString.call(factory);
+        if (!["fetchJson", "cancelStream", "getInstance"].every((name) => source.includes(name))) continue;
+        for (const value of Object.values(cached.exports ?? {})) {
+          if (typeof value === "function" && value.prototype &&
+              Object.hasOwn(value.prototype, "fetch") &&
+              Object.hasOwn(value.prototype, "fetchJson") &&
+              Object.hasOwn(value.prototype, "cancelStream") &&
+              typeof value.getInstance === "function") candidates.add(value);
+        }
       }
     }
 
-    // 这一段有界读取主模块的真实引用；共享取消信号，不递归扫描其他资源。
-    // Read bounded main-module references with the shared abort signal, without recursively scanning other resources.
-    for (const mainUrl of Array.from(mainUrls).slice(0, 3)) {
-      signal.throwIfAborted();
-      const response = await fetch(mainUrl, { signal });
-      if (!response.ok) throw new Error("Official application main module is unavailable");
-      const source = await response.text();
-      for (const match of source.matchAll(/["'`]\.\/(app-initial-[\w-]+\.js)(?=["'`])/g)) {
-        initialUrls.add(new URL(match[1], mainUrl).href);
-      }
-    }
-
-    // 这一段按官方类的自有方法识别唯一客户端，不调用任意导出或代理服务。
-    // Identify the unique official client by its own methods without invoking arbitrary exports or service proxies.
-    for (const url of Array.from(initialUrls).slice(0, 3)) {
-      signal.throwIfAborted();
-      const module = await import(url);
-      const candidates = Object.values(module).filter((value) => (
-        typeof value === "function" && value.prototype &&
-        Object.hasOwn(value.prototype, "fetch") &&
-        Object.hasOwn(value.prototype, "fetchJson") &&
-        Object.hasOwn(value.prototype, "cancelStream") &&
-        typeof value.getInstance === "function"
-      ));
-      if (candidates.length === 1) return candidates[0].getInstance();
-    }
+    // 这一段要求全局唯一的客户端类；同类的重复导出合并，不猜测多个匹配的优先级。
+    // Require one unique client class across loaders; deduplicate aliases without guessing among multiple matches.
+    signal.throwIfAborted();
+    if (candidates.size === 1) return [...candidates][0].getInstance();
     throw new Error("Official HTTP fetch client is unavailable");
   }
 

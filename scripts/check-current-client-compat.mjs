@@ -6,22 +6,18 @@ import { buildInjectionModulePaths } from "../src/launcher/injection-manifest.mj
 // 这一段读取真实模块；测试只替换动态 import 的宿主加载能力，不复制请求逻辑。
 // Read production modules; replace only the host import mechanism instead of copying request logic.
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
-const fetchSource = (await read("src/inject/core/fetch-bridge.js")).replace("await import(url)", "await loadOfficialModule(url)");
+const fetchSource = (await read("src/inject/core/fetch-bridge.js")).replace("import(url)", "loadOfficialModule(url)");
 const nativeSource = await read("src/inject/core/native-bridge.js");
 const runtimeSource = await read("src/inject/core/runtime.js");
 const cloudSource = await read("src/inject/systems/settings-menu/cloud-sync.js");
 const cloudSectionSource = await read("src/inject/systems/settings-menu/sections/cloud-sync.js");
 
-// 构造官方请求客户端宿主，验证真实发现逻辑及请求生命周期。
-// Build the official-client host to exercise production discovery and request lifecycles.
-function createHttpHarness({ failDiscovery = false, delayDiscovery = false, legacyEntry = false, failMain = false, delayMain = false } = {}) {
-  // 这一段模拟改过 hash 和导出名的官方模块，记录发现次数、响应流释放和取消信号。
-  // Simulate changed hashes and export names, recording discovery, stream disposal, and cancellation.
-  const stats = {
-    discoveries: 0, mainReads: 0, calls: 0, cancelled: 0, lastSignal: null,
-    entrySource: legacyEntry ? 'import "./app-initial-old-hash.js";' : 'import "./other-app-main-decoy.js"; import "./app-main-next-hash.js"; import "./app-main-next-hash.js";',
-    mainSource: 'import "./app-shared-new-hash.js"; import "./other-app-initial-decoy.js"; import "./app-initial-new-hash.js";',
-  };
+// 构造新版模块缓存宿主，验证真实发现逻辑及请求生命周期。
+// Build a current module-cache host to exercise production discovery and request lifecycles.
+function createHttpHarness({ failImport = false, delayImport = false, missingClient = false, ambiguous = false } = {}) {
+  // 这一段使用无语义文件名和任意模块 ID，记录导入、单例访问、响应流释放与取消。
+  // Use opaque filenames and arbitrary module IDs, recording imports, singleton access, stream disposal, and cancellation.
+  const stats = { imports: 0, instances: 0, calls: 0, cancelled: 0, lastSignal: null, missingClient, ambiguous };
   const runtime = { controllers: {} };
   const client = {
     async fetch(url, options) {
@@ -39,93 +35,111 @@ function createHttpHarness({ failDiscovery = false, delayDiscovery = false, lega
       };
     },
   };
-  // 这一段只让符合官方接口的类被调用，其他导出若被误调用立即失败。
-  // Permit only the class matching the official interface; unrelated exports fail if invoked.
+  // 这一段仅允许唯一符合官方接口的类获取实例，歧义类不能被调用。
+  // Allow singleton access only for the unique official interface; ambiguous classes must never be invoked.
   class OfficialClient {
-    static getInstance() { return client; }
+    static getInstance() { stats.instances += 1; return client; }
     fetch() {}
     fetchJson() {}
     cancelStream() {}
   }
+  class OtherClient {
+    static getInstance() { assert.fail("Ambiguous client invoked"); }
+    fetch() {}
+    fetchJson() {}
+    cancelStream() {}
+  }
+  // 这些工厂只提供可观察特征；执行任何工厂或模块加载器都意味着错误初始化。
+  // Factories provide observable signatures only; invoking a factory or loader would wrongly initialize modules.
+  function httpFactory() { const signature = "fetchJson cancelStream getInstance"; assert.fail(signature); }
+  function unrelatedFactory() { assert.fail("Unrelated factory invoked"); }
+  function loader() { assert.fail("Module loader invoked"); }
+  loader.m = { current: httpFactory, alias: httpFactory, uncached: httpFactory, unrelated: unrelatedFactory, failed: httpFactory, partial: httpFactory };
+  loader.c = {
+    current: { exports: { renamed: OfficialClient } },
+    alias: { exports: { anotherName: OfficialClient } },
+    unrelated: { get exports() { assert.fail("Unrelated exports inspected"); } },
+    failed: { error: new Error("fixture"), get exports() { assert.fail("Failed module inspected"); } },
+    partial: { exports: { unrelated: { getInstance() { assert.fail("Unrelated export invoked"); } } } },
+  };
   const context = vm.createContext({
     window: { __codexProRuntime: runtime },
-    document: { scripts: [{ src: "app://-/assets/index-fixture-next.js" }] },
+    document: { scripts: [
+      { type: "module", src: "https://example.test/external.js" },
+      { type: "text/javascript", src: "app://-/assets/classic.js" },
+      { type: "module", src: "app://-/assets/101.changed.js" },
+      { type: "module", src: "app://-/assets/202.changed.js" },
+      { type: "module", src: "app://-/assets/202.changed.js" },
+      { type: "module", src: "app://-/assets/303.changed.js" },
+    ] },
     AbortController, AbortSignal, URL, console,
-    fetch: async (url, { signal }) => {
-      // 这一段分别模拟入口和主模块，错误地址直接失败，防止相似名称或递归扫描混入。
-      // Model entry and main modules separately; reject other URLs to catch lookalikes and recursive scans.
-      const isEntry = url === "app://-/assets/index-fixture-next.js";
-      if (isEntry) stats.discoveries += 1;
-      else {
-        assert.equal(url, "app://-/assets/app-main-next-hash.js");
-        stats.mainReads += 1;
-      }
-      if ((isEntry && delayDiscovery) || (!isEntry && delayMain)) return new Promise((resolve, reject) => {
-        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
-      });
-      return { ok: isEntry ? !failDiscovery : !failMain, text: async () => isEntry ? stats.entrySource : stats.mainSource };
-    },
     loadOfficialModule: async (url) => {
-      assert.equal(url, "app://-/assets/app-initial-new-hash.js");
-      return { changedExportName: OfficialClient, unrelated: { getInstance() { throw new Error("Unrelated export invoked"); } } };
+      stats.imports += 1;
+      assert.match(url, /^app:\/\/-\/assets\/(101|202|303)\.changed\.js$/);
+      if (failImport) throw new Error("Module import unavailable");
+      if (delayImport) return new Promise(() => {});
+      if (url.endsWith("101.changed.js")) return { __webpack_modules__: { untouched: unrelatedFactory } };
+      // 这一段模拟客户端尚未初始化和第二个匹配类；同一 loader 的重复导出不重复扫描。
+      // Model an uninitialized client and a second matching class; repeated loader exports must not rescan it.
+      loader.c.current.exports = stats.missingClient ? {} : { renamed: OfficialClient };
+      loader.c.alias.exports = stats.missingClient ? {} : { anotherName: OfficialClient };
+      if (stats.ambiguous) {
+        loader.m.second = httpFactory;
+        loader.c.second = { exports: { renamedAgain: OtherClient } };
+      }
+      return { __webpack_require__: loader };
     },
   });
   vm.runInContext(fetchSource, context);
   return { runtime, stats, context };
 }
 
-// 这一段验证并发发现、JSON、无正文检测和错误传播，避免源码字符串检查掩盖协议失效。
-// Exercise concurrent discovery, JSON, status-only checks, and errors instead of relying on source-string assertions.
+// 这一段验证并发发现、别名去重、JSON、响应释放及错误传播，执行实际生产发现代码。
+// Exercise production discovery for concurrent calls, aliases, JSON, response disposal, and errors.
 const http = createHttpHarness();
 const responses = await Promise.all([http.runtime.fetchBridge.requestJson("/data"), http.runtime.fetchBridge.requestOk("/status")]);
 assert.equal(responses[0].result, 42);
 assert.equal(responses[1].status, 200);
-assert.equal(http.stats.discoveries, 1);
-assert.equal(http.stats.mainReads, 1);
+assert.equal(http.stats.imports, 3);
+assert.equal(http.stats.instances, 1);
 assert.equal(http.stats.cancelled, 2);
 await assert.rejects(http.runtime.fetchBridge.requestOk("/failure"), /HTTP 503/);
+assert.equal(http.stats.imports, 3);
 const pending = http.runtime.fetchBridge.requestOk("/pending");
 await new Promise((resolve) => setTimeout(resolve, 0));
 vm.runInContext(fetchSource, http.context);
 await assert.rejects(pending, { name: "AbortError" });
 assert.equal(http.stats.lastSignal.aborted, true);
-const failed = createHttpHarness({ failDiscovery: true });
-await assert.rejects(failed.runtime.fetchBridge.requestOk("/data"), /entry is unavailable/);
-await assert.rejects(failed.runtime.fetchBridge.requestOk("/data"), /entry is unavailable/);
-assert.equal(failed.stats.discoveries, 2);
-// 这一段拒绝旧版入口，并确认模块缺失后的下一次刷新能重新发现新版入口。
-// Reject legacy entries and allow discovery to recover on the next refresh after a missing module.
-const legacy = createHttpHarness({ legacyEntry: true });
-await assert.rejects(legacy.runtime.fetchBridge.requestOk("/data"), /client is unavailable/);
-assert.equal(legacy.stats.calls, 0);
-legacy.stats.entrySource = 'import "./app-main-next-hash.js";';
-assert.equal((await legacy.runtime.fetchBridge.requestJson("/data")).result, 42);
-assert.equal(legacy.stats.discoveries, 2);
-// 这一段覆盖新增主模块读取失败、缺失引用后恢复及取消，避免更新后静默停在未知额度。
-// Cover main-module failures, recovery after missing references, and cancellation so updates cannot silently strand quota.
-const brokenMain = createHttpHarness({ failMain: true });
-await assert.rejects(brokenMain.runtime.fetchBridge.requestOk("/data"), /main module is unavailable/);
-assert.equal(brokenMain.stats.calls, 0);
-const missingInitial = createHttpHarness();
-missingInitial.stats.mainSource = 'import "./app-shared-new-hash.js";';
-await assert.rejects(missingInitial.runtime.fetchBridge.requestOk("/data"), /client is unavailable/);
-missingInitial.stats.mainSource = 'import "./app-initial-new-hash.js";';
-assert.equal((await missingInitial.runtime.fetchBridge.requestOk("/data")).status, 200);
-assert.equal(missingInitial.stats.mainReads, 2);
-const pendingMain = createHttpHarness({ delayMain: true });
-const pendingMainRequest = pendingMain.runtime.fetchBridge.requestOk("/data");
-await new Promise((resolve) => setTimeout(resolve, 0));
-assert.equal(pendingMain.stats.mainReads, 1);
-pendingMain.runtime.controllers["http-fetch"].abort();
-await assert.rejects(pendingMainRequest, { name: "AbortError" });
-assert.equal(pendingMain.stats.calls, 0);
-const slow = createHttpHarness({ delayDiscovery: true });
-// 这一段保留短期事件循环句柄，确保 Node 的非引用超时信号也能被验证。
-// Keep a short event-loop handle alive so Node's unreferenced timeout signal can be tested.
+
+// 这一段覆盖导入失败重试、未初始化客户端后续恢复，以及歧义时拒绝调用任一单例。
+// Cover import retries, later initialization, and rejection of ambiguous singleton candidates.
+const failed = createHttpHarness({ failImport: true });
+await assert.rejects(failed.runtime.fetchBridge.requestOk("/data"), /import unavailable/);
+await assert.rejects(failed.runtime.fetchBridge.requestOk("/data"), /import unavailable/);
+assert.equal(failed.stats.imports, 2);
+const missing = createHttpHarness({ missingClient: true });
+await assert.rejects(missing.runtime.fetchBridge.requestOk("/data"), /client is unavailable/);
+assert.equal(missing.stats.instances, 0);
+missing.stats.missingClient = false;
+assert.equal((await missing.runtime.fetchBridge.requestJson("/data")).result, 42);
+assert.equal(missing.stats.imports, 6);
+const ambiguous = createHttpHarness({ ambiguous: true });
+await assert.rejects(ambiguous.runtime.fetchBridge.requestOk("/data"), /client is unavailable/);
+assert.equal(ambiguous.stats.instances, 0);
+assert.equal(ambiguous.stats.calls, 0);
+
+// 这一段确认导入未完成时仍可超时和热注入取消，迟到模块不会启动 HTTP 请求。
+// Ensure pending imports permit timeouts and reinjection cancellation without starting a late HTTP request.
+const slow = createHttpHarness({ delayImport: true });
 const keepAlive = setTimeout(() => {}, 1000);
 await assert.rejects(slow.runtime.fetchBridge.requestOk("/data", { timeoutMs: 20 }), { name: "TimeoutError" });
 slow.runtime.controllers["http-fetch"].abort();
 clearTimeout(keepAlive);
+const aborted = createHttpHarness({ delayImport: true });
+const abortedRequest = aborted.runtime.fetchBridge.requestOk("/data");
+aborted.runtime.controllers["http-fetch"].abort();
+await assert.rejects(abortedRequest, { name: "AbortError" });
+assert.equal(aborted.stats.calls, 0);
 
 // 这一段使用真实运行时确认四个暂停系统不启动，并确认归档 helper 仍在加载清单中。
 // Verify the real runtime prevents suspended systems from starting while retaining archive helpers in the bundle.
