@@ -36,6 +36,10 @@ export const settingsMenuBuiltinSectionModules = [
 
 export const settingsMenuSectionModules = [
   {
+    ownerSystem: "sidebar-usage-label",
+    path: ["src", "inject", "systems", "sidebar-usage-label", "settings.js"],
+  },
+  {
     ownerSystem: "chat-font-size",
     path: ["src", "inject", "systems", "chat-font-size", "settings.js"],
   },
@@ -94,6 +98,13 @@ export const settingsMenuSectionModules = [
 ];
 
 export const injectableSystems = [
+  {
+    name: "sidebar-usage-label",
+    modules: [
+      ["src", "inject", "systems", "sidebar-usage-label", "native-meter.js"],
+      ["src", "inject", "systems", "sidebar-usage-label", "index.js"],
+    ],
+  },
   {
     name: "chat-font-size",
     modules: [["src", "inject", "systems", "chat-font-size", "index.js"]],

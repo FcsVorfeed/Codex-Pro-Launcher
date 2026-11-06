@@ -87,6 +87,9 @@
     // 聊天字号默认增加 2px；Chat font defaults to a 2px offset.
     chatFontSizeOffset: 2,
     enableChatFontSize: true,
+    // 侧栏圆圈上方默认显示原生剩余额度。
+    // Show native remaining quota above the sidebar ring by default.
+    enableSidebarUsageLabel: true,
     showWeeklyQuotaInline: true,
     chatWidthMode: defaultChatWidthMode,
     chatWidthPixels: defaultChatWidthPixels,
@@ -858,6 +861,7 @@
   const settingFields = [
     { key: "chatFontSizeOffset", normalize: normalizeChatFontSizeOffset },
     { key: "enableChatFontSize", normalize: (value) => normalizeEnabledSetting(value, true) },
+    { key: "enableSidebarUsageLabel", normalize: (value) => normalizeEnabledSetting(value, true) },
     { key: "showWeeklyQuotaInline", normalize: (value) => normalizeEnabledSetting(value, true) },
     { key: "backgroundWallpaperImages", normalize: normalizeBackgroundWallpaperImages },
     { key: "backgroundWallpaperIntervalSeconds", normalize: normalizeBackgroundWallpaperIntervalSeconds },

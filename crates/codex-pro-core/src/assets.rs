@@ -120,6 +120,15 @@ pub fn module_source(path: &str) -> Option<&'static str> {
         "src/inject/systems/usage-panel/index.js" => {
             include_str!("../../../src/inject/systems/usage-panel/index.js")
         }
+        "src/inject/systems/sidebar-usage-label/native-meter.js" => {
+            include_str!("../../../src/inject/systems/sidebar-usage-label/native-meter.js")
+        }
+        "src/inject/systems/sidebar-usage-label/index.js" => {
+            include_str!("../../../src/inject/systems/sidebar-usage-label/index.js")
+        }
+        "src/inject/systems/sidebar-usage-label/settings.js" => {
+            include_str!("../../../src/inject/systems/sidebar-usage-label/settings.js")
+        }
         "src/inject/systems/chat-font-size/index.js" => {
             include_str!("../../../src/inject/systems/chat-font-size/index.js")
         }

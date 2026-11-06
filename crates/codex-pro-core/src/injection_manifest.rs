@@ -50,6 +50,10 @@ pub const SETTINGS_MENU_BUILTIN_SECTION_MODULES: &[&str] = &[
 /// Sections contributed to settings-menu by other systems.
 pub const SETTINGS_MENU_SECTION_MODULES: &[SettingsSectionModule] = &[
     SettingsSectionModule {
+        owner_system: "sidebar-usage-label",
+        path: "src/inject/systems/sidebar-usage-label/settings.js",
+    },
+    SettingsSectionModule {
         owner_system: "chat-font-size",
         path: "src/inject/systems/chat-font-size/settings.js",
     },
@@ -110,6 +114,13 @@ pub const SETTINGS_MENU_SECTION_MODULES: &[SettingsSectionModule] = &[
 /// 这一段是可注入功能系统清单。
 /// Injectable feature-system list.
 pub const INJECTABLE_SYSTEMS: &[InjectableSystem] = &[
+    InjectableSystem {
+        name: "sidebar-usage-label",
+        modules: &[
+            "src/inject/systems/sidebar-usage-label/native-meter.js",
+            "src/inject/systems/sidebar-usage-label/index.js",
+        ],
+    },
     InjectableSystem {
         name: "chat-font-size",
         modules: &["src/inject/systems/chat-font-size/index.js"],
