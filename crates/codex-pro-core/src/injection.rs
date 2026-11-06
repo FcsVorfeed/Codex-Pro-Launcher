@@ -1,3 +1,5 @@
+mod startup;
+
 use crate::cdp::{
     CdpClient, CdpTarget, is_auxiliary_codex_page_target, list_targets, wait_for_target,
 };
@@ -321,55 +323,23 @@ pub async fn inject(
     native_bridge: Option<&NativeBridgeConfig>,
     source_root: Option<&Path>,
 ) -> anyhow::Result<InjectionResult> {
-    // 这一段等待主页面并生成脚本。
-    // Wait for the main page and build the script.
-    let target = wait_for_target(debug_port, timeout_ms).await?;
-    let websocket_url = target
-        .web_socket_debugger_url
-        .as_deref()
-        .ok_or_else(|| anyhow::anyhow!("selected CDP target has no websocket URL"))?;
+    // 这一段先构建脚本，源码错误无需建立连接或消耗启动重试时间。
+    // Build the script first; source errors need neither a connection nor startup retries.
     let script = read_injection_script(disabled_systems, native_bridge, source_root)?;
+    let (target, mut client) =
+        startup::prepare_connection(debug_port, timeout_ms, disabled_systems, native_bridge)
+            .await?;
 
-    // 这一段注册 binding 并执行立即注入。
-    // Register the binding and execute immediate injection.
-    let mut client = CdpClient::connect(websocket_url).await?;
+    // 这一段只执行一次实际注入，避免在响应丢失时重放有副作用的脚本。
+    // Execute injection once to avoid replaying side effects after a lost response.
     let result = async {
-        client.send("Runtime.enable", json!({})).await?;
-
-        // 这一段在普通注入前尝试应用官方 split-items 热路径补丁；失败只记录，不阻断其它功能。
-        // Try the official split-items hotpath patch before normal injection; failures are logged without blocking other systems.
-        if !disabled_systems
-            .iter()
-            .any(|system| system.as_str() == "split-items-hotpath-patch")
-        {
-            match crate::split_items_hotpath_patch::apply_split_items_hotpath_patch(&mut client)
-                .await
-            {
-                Ok(status) => eprintln!("[Codex-Pro] split-items hotpath patch: {status}"),
-                Err(error) => {
-                    eprintln!("[Codex-Pro] split-items hotpath patch skipped: {error}")
-                }
-            }
-        }
-        if let Some(native_bridge) = native_bridge {
-            let add_binding = client
-                .send(
-                    "Runtime.addBinding",
-                    json!({ "name": native_bridge.binding_name }),
-                )
-                .await;
-            if let Err(error) = add_binding
-                && !error.to_string().contains("already exists")
-            {
-                return Err(error);
-            }
-        }
         client
             .send(
                 "Page.addScriptToEvaluateOnNewDocument",
                 json!({ "source": script }),
             )
-            .await?;
+            .await
+            .context("injection stage Page.addScriptToEvaluateOnNewDocument")?;
         client
             .send(
                 "Runtime.evaluate",
@@ -379,7 +349,8 @@ pub async fn inject(
                     "allowUnsafeEvalBlockedByCSP": true,
                 }),
             )
-            .await?;
+            .await
+            .context("injection stage Runtime.evaluate")?;
         cleanup_auxiliary_codex_targets(debug_port, &target.id).await?;
         inject_pet_event_sound_overlay_targets(
             debug_port,

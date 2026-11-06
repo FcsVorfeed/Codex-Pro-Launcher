@@ -17,9 +17,6 @@ use std::path::PathBuf;
 /// 这一段定义 native bridge 状态作为端口线索的有效窗口。
 /// Defines the freshness window for native bridge state used as a port hint.
 const NATIVE_BRIDGE_PORT_HINT_MAX_AGE_MS: u128 = 12_000;
-/// 这一段定义已确认 CDP 可用后再次等待注入目标的短超时。
-/// Defines the short injection wait after CDP availability was already confirmed.
-const CONFIRMED_CDP_INJECTION_TIMEOUT_MS: u64 = 5_000;
 
 /// 这一段描述已有 Codex 激活或启动后的下一步动作。
 /// Describes the next action after activating or launching an existing Codex.
@@ -28,9 +25,6 @@ struct ActivationOutcome {
     /// 这一段表示普通 launcher 是否应该跳过本轮注入。
     /// Whether the normal launcher should skip injection for this run.
     skip_injection: bool,
-    /// 这一段表示前置步骤已经确认 CDP 主页面存在。
-    /// Whether a previous step already confirmed the main CDP page exists.
-    cdp_ready: bool,
 }
 
 /// 这一段是 Rust 单文件启动器入口。
@@ -124,9 +118,8 @@ async fn run_launcher(raw_args: Vec<String>) -> Result<()> {
 
     // 这一段非 attach-only 时先复用并置前已运行 Codex；运行态可复用时普通双击不再重复注入。
     // Reuse and foreground an existing Codex first; skip reinjection on normal double-clicks when the runtime is reusable.
-    let mut activation = ActivationOutcome::default();
     if !options.attach_only {
-        activation = activate_or_launch_existing_codex(&mut options, true).await?;
+        let activation = activate_or_launch_existing_codex(&mut options, true).await?;
         if activation.skip_injection {
             append_log_line(
                 &launcher_log_path()?,
@@ -150,14 +143,11 @@ async fn run_launcher(raw_args: Vec<String>) -> Result<()> {
     } else {
         None
     };
-    let injection_timeout_ms = if activation.cdp_ready {
-        options.timeout_ms.min(CONFIRMED_CDP_INJECTION_TIMEOUT_MS)
-    } else {
-        options.timeout_ms
-    };
+    // 这一段为整个连接准备流程保留配置预算，不把已发现 target 的短等待误用于初始化。
+    // Keep the configured budget for all connection preparation, not the former short discovery wait.
     let injected = inject(
         options.debug_port,
-        injection_timeout_ms,
+        options.timeout_ms,
         &options.disabled_systems,
         bridge_config.as_ref(),
         source_root.as_deref(),
@@ -369,7 +359,6 @@ async fn activate_or_launch_existing_codex(
         .await?;
         return Ok(ActivationOutcome {
             skip_injection: false,
-            cdp_ready: true,
         });
     }
 
@@ -385,7 +374,6 @@ async fn activate_or_launch_existing_codex(
     append_log_line(&log_path, &format!("RustLaunch: {started:?}")).await?;
     Ok(ActivationOutcome {
         skip_injection: false,
-        cdp_ready: started.cdp_ready,
     })
 }
 
@@ -465,7 +453,6 @@ async fn probe_reused_runtime_port(
             if probe.usable {
                 return Ok(Some(ActivationOutcome {
                     skip_injection: true,
-                    cdp_ready: true,
                 }));
             }
         }
@@ -479,7 +466,6 @@ async fn probe_reused_runtime_port(
     }
     Ok(Some(ActivationOutcome {
         skip_injection: false,
-        cdp_ready: true,
     }))
 }
 

@@ -5,7 +5,8 @@ use serde_json::{Value, json};
 use std::collections::{HashMap, VecDeque};
 use std::time::Duration;
 use tokio_tungstenite::connect_async;
-use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::error::ProtocolError;
+use tokio_tungstenite::tungstenite::{Error as WebSocketError, Message};
 
 /// 这一段定义 CDP HTTP 查询超时。
 /// CDP HTTP query timeout.
@@ -13,6 +14,37 @@ const CDP_HTTP_TIMEOUT: Duration = Duration::from_secs(3);
 /// 这一段定义 CDP WebSocket 命令超时。
 /// CDP WebSocket command timeout.
 const CDP_COMMAND_TIMEOUT: Duration = Duration::from_secs(8);
+
+/// 这一段保留 CDP 连接首次断开的原因，供启动阶段判断是否需要重连。
+/// Preserve the first CDP disconnect reason for startup reconnection decisions.
+#[derive(Debug)]
+struct CdpDisconnected(String);
+
+impl std::fmt::Display for CdpDisconnected {
+    /// 这一段输出最初的连接错误，避免被后续命令覆盖。
+    /// Display the original connection failure instead of a later command error.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}", self.0)
+    }
+}
+
+impl std::error::Error for CdpDisconnected {}
+
+/// 这一段只识别连接丢失，不把 CDP 业务错误或命令超时当成可重试断线。
+/// Identify connection loss without retrying CDP application errors or command timeouts.
+pub fn is_connection_loss(error: &anyhow::Error) -> bool {
+    // 这一段按错误类型检查，避免依赖错误文本或界面语言。
+    // Inspect error types instead of depending on error strings or UI language.
+    error.chain().any(|cause| {
+        cause.is::<CdpDisconnected>()
+            || cause.downcast_ref::<WebSocketError>().is_some_and(|error| {
+                matches!(error, WebSocketError::ConnectionClosed | WebSocketError::AlreadyClosed
+                    | WebSocketError::Io(_)
+                    | WebSocketError::Protocol(ProtocolError::ResetWithoutClosingHandshake))
+                    || matches!(error, WebSocketError::Http(response) if response.status().as_u16() == 404)
+            })
+    })
+}
 
 /// 这一段描述 Chromium DevTools Protocol 页面目标。
 /// Describes a Chromium DevTools Protocol page target.
@@ -193,6 +225,9 @@ pub struct CdpClient {
     /// 这一段缓存等待命令响应时读到的 CDP 事件，避免吞掉 Runtime.bindingCalled。
     /// Events received while waiting for a command response, preventing Runtime.bindingCalled from being swallowed.
     pending_events: VecDeque<Value>,
+    /// 这一段保存首次传输断线；可选步骤捕获错误也不能恢复已失效的连接。
+    /// Retain the first disconnect even when an optional step catches the error.
+    connection_failure: Option<String>,
 }
 
 impl CdpClient {
@@ -211,6 +246,7 @@ impl CdpClient {
             next_id: 1,
             pending_responses: HashMap::new(),
             pending_events: VecDeque::new(),
+            connection_failure: None,
         })
     }
 
@@ -219,22 +255,60 @@ impl CdpClient {
     pub async fn send(&mut self, method: &str, params: Value) -> anyhow::Result<Value> {
         // 这一段为请求分配 id 并写入 websocket。
         // Allocate an id and write the request to the websocket.
+        self.ensure_connected()?;
         let id = self.next_id;
         self.next_id += 1;
-        self.socket
+        let sent = self
+            .socket
             .send(Message::Text(
                 json!({ "id": id, "method": method, "params": params })
                     .to_string()
                     .into(),
             ))
             .await
-            .with_context(|| format!("failed to send CDP command {method}"))?;
-        tokio::time::timeout(
+            .with_context(|| format!("failed to send CDP command {method}"));
+        if let Err(error) = sent {
+            return Err(self.remember_connection_failure(error));
+        }
+        let result = tokio::time::timeout(
             CDP_COMMAND_TIMEOUT,
             self.wait_for_id(id, method.to_string()),
         )
         .await
-        .with_context(|| format!("timed out waiting for CDP command {method}"))?
+        .with_context(|| format!("timed out waiting for CDP command {method}"))?;
+        result.map_err(|error| {
+            // 这一段只为断线补充命令阶段，保留业务错误的顶层文本供既有调用方判断。
+            // Add command context only to disconnects, preserving application error text for callers.
+            if is_connection_loss(&error) {
+                let error = error.context(format!("CDP response for {method}"));
+                self.connection_failure = Some(format!("{error:#}"));
+                error
+            } else {
+                error
+            }
+        })
+    }
+
+    /// 这一段检查连接是否曾经断开，禁止可选步骤吞错后继续发送命令。
+    /// Reject a previously disconnected session even if an optional step swallowed its error.
+    pub fn ensure_connected(&self) -> anyhow::Result<()> {
+        // 这一段返回最初断线详情，不用后续 AlreadyClosed 错误覆盖它。
+        // Return the first disconnect details rather than replacing them with AlreadyClosed.
+        if let Some(reason) = &self.connection_failure {
+            return Err(CdpDisconnected(reason.clone()).into());
+        }
+        Ok(())
+    }
+
+    /// 这一段只保存首次连接丢失；协议业务错误保持原样交给调用方。
+    /// Retain only the first connection loss and leave application errors to the caller.
+    fn remember_connection_failure(&mut self, error: anyhow::Error) -> anyhow::Error {
+        // 这一段不累计错误历史，单连接只保留一份最初原因。
+        // Keep one original reason per connection instead of accumulating error history.
+        if self.connection_failure.is_none() && is_connection_loss(&error) {
+            self.connection_failure = Some(format!("{error:#}"));
+        }
+        error
     }
 
     /// 这一段读取下一条 websocket 消息。
@@ -253,10 +327,18 @@ impl CdpClient {
     async fn read_socket_message(&mut self) -> anyhow::Result<Option<Value>> {
         // 这一段只解析文本消息；其它消息按空对象处理。
         // Parse text messages; treat non-text messages as empty objects.
+        self.ensure_connected()?;
         let Some(message) = self.socket.next().await else {
-            return Ok(None);
+            let error = CdpDisconnected("CDP websocket ended without a response".to_string());
+            return Err(self.remember_connection_failure(error.into()));
         };
-        let message = message.context("failed to read CDP websocket message")?;
+        let message = message
+            .context("failed to read CDP websocket message")
+            .map_err(|error| self.remember_connection_failure(error))?;
+        if matches!(message, Message::Close(_)) {
+            let error = CdpDisconnected("CDP websocket received a close frame".to_string());
+            return Err(self.remember_connection_failure(error.into()));
+        }
         let Message::Text(text) = message else {
             return Ok(Some(json!({})));
         };
