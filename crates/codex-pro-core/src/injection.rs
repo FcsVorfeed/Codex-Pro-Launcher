@@ -325,32 +325,44 @@ pub async fn inject(
 ) -> anyhow::Result<InjectionResult> {
     // 这一段先构建脚本，源码错误无需建立连接或消耗启动重试时间。
     // Build the script first; source errors need neither a connection nor startup retries.
-    let script = read_injection_script(disabled_systems, native_bridge, source_root)?;
-    let (target, mut client) =
-        startup::prepare_connection(debug_port, timeout_ms, disabled_systems, native_bridge)
-            .await?;
+    let source = read_injection_script(disabled_systems, native_bridge, source_root)?;
+    // 这一段为本次注入生成独立标记；同一次恢复复用标记，用户再次注入则允许重新执行。
+    // Generate a per-injection marker, shared by recovery attempts but renewed for explicit reinjection.
+    let script = include_str!("injection/once.js")
+        .replace(
+            "/* CODEX_PRO_ATTEMPT_ID */",
+            &serde_json::to_string(&uuid::Uuid::new_v4().to_string())?,
+        )
+        .replace("/* CODEX_PRO_INJECTION_SOURCE */", &source);
+    let (target, mut client) = startup::prepare_connection(
+        debug_port,
+        timeout_ms,
+        disabled_systems,
+        native_bridge,
+        &script,
+    )
+    .await?;
 
     // 这一段只执行一次实际注入，避免在响应丢失时重放有副作用的脚本。
     // Execute injection once to avoid replaying side effects after a lost response.
     let result = async {
-        client
-            .send(
-                "Page.addScriptToEvaluateOnNewDocument",
-                json!({ "source": script }),
-            )
-            .await
-            .context("injection stage Page.addScriptToEvaluateOnNewDocument")?;
-        client
+        let response = client
             .send(
                 "Runtime.evaluate",
                 json!({
                     "expression": script,
-                    "awaitPromise": false,
+                    "awaitPromise": true,
                     "allowUnsafeEvalBlockedByCSP": true,
                 }),
             )
             .await
             .context("injection stage Runtime.evaluate")?;
+        // 这一段区分传输成功与脚本成功，不把页面异常当成注入成功，也不输出脚本或用户数据。
+        // Distinguish transport success from script success without logging script source or user data.
+        anyhow::ensure!(
+            response.pointer("/result/exceptionDetails").is_none(),
+            "injection stage Runtime.evaluate: injected script reported an exception"
+        );
         cleanup_auxiliary_codex_targets(debug_port, &target.id).await?;
         inject_pet_event_sound_overlay_targets(
             debug_port,

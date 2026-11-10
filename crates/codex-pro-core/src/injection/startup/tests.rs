@@ -15,6 +15,9 @@ enum Fault {
     /// 这一段在指定命令第一次执行时正常关闭连接。
     /// Close the connection on the first execution of the selected command.
     CloseOnce(&'static str),
+    /// 这一段保持同一 target 并丢弃首次注册响应，模拟请求已被接受而回包丢失。
+    /// Keep the same target and lose the first registration response after accepting its source.
+    RegistrationResponseLost,
     /// 这一段模拟没有关闭握手的连接重置。
     /// Simulate a reset without a closing handshake.
     ResetOnce,
@@ -24,6 +27,15 @@ enum Fault {
     /// 这一段返回业务协议错误，用于确认不会重试。
     /// Return an application protocol error to verify it is not retried.
     CommandError,
+    /// 这一段在注册阶段返回协议错误，确保不会错误重试。
+    /// Return a registration protocol error to ensure it is never retried.
+    RegistrationError,
+    /// 这一段让注册阶段一直挂起或断开，验证注册也受总时限约束。
+    /// Stall or close every registration to verify registration shares the deadline.
+    RegistrationUnavailable(bool),
+    /// 这一段让脚本执行返回异常详情，不能误判为注入成功。
+    /// Return script exception details, which must not be reported as injection success.
+    ScriptException,
     /// 这一段模拟同名 binding 已存在的既有可接受响应。
     /// Simulate the existing acceptable response for a duplicate binding.
     BindingExists,
@@ -44,6 +56,9 @@ struct MockCdp {
     /// 这一段记录每条连接实际收到的命令。
     /// Record commands actually received by each connection.
     commands: Arc<Mutex<Vec<(usize, String)>>>,
+    /// 这一段记录服务端收到的注册与执行脚本，核对重连没有更换注入标记。
+    /// Record accepted registration and evaluation scripts to verify recovery preserves the marker.
+    scripts: Arc<Mutex<Vec<String>>>,
     /// 这一段持有服务任务，离开测试作用域即取消。
     /// Own the server task so leaving the test scope cancels it.
     task: JoinHandle<()>,
@@ -67,8 +82,10 @@ impl MockCdp {
         let port = listener.local_addr().unwrap().port();
         let discoveries = Arc::new(AtomicUsize::new(0));
         let commands = Arc::new(Mutex::new(Vec::new()));
+        let scripts = Arc::new(Mutex::new(Vec::new()));
         let observed_discoveries = discoveries.clone();
         let observed_commands = commands.clone();
+        let observed_scripts = scripts.clone();
         let task = tokio::spawn(async move {
             let mut sessions = JoinSet::new();
             loop {
@@ -76,7 +93,7 @@ impl MockCdp {
                     connection = listener.accept() => {
                         let (stream, _) = connection.unwrap();
                         sessions.spawn(serve_connection(stream, port, fault,
-                            observed_discoveries.clone(), observed_commands.clone()));
+                            observed_discoveries.clone(), observed_commands.clone(), observed_scripts.clone()));
                     }
                     Some(result) = sessions.join_next(), if !sessions.is_empty() => { result.unwrap(); }
                 }
@@ -86,6 +103,7 @@ impl MockCdp {
             port,
             discoveries,
             commands,
+            scripts,
             task,
         }
     }
@@ -99,6 +117,7 @@ async fn serve_connection(
     fault: Fault,
     discoveries: Arc<AtomicUsize>,
     commands: Arc<Mutex<Vec<(usize, String)>>>,
+    scripts: Arc<Mutex<Vec<String>>>,
 ) {
     // 这一段先只窥视请求行，让 WebSocket 握手函数仍能读取完整请求。
     // Peek at the request line so the WebSocket handshake still receives the full request.
@@ -114,6 +133,11 @@ async fn serve_connection(
     let request = String::from_utf8_lossy(&prefix[..length]);
     if request.starts_with("GET /json ") {
         let generation = discoveries.fetch_add(1, Ordering::SeqCst) + 1;
+        let generation = if matches!(fault, Fault::RegistrationResponseLost) {
+            1
+        } else {
+            generation
+        };
         let body = json!([{
             "id": format!("main-{generation}"), "type": "page", "url": "app://-/index.html",
             "webSocketDebuggerUrl": format!("ws://127.0.0.1:{port}/devtools/page/{generation}")
@@ -144,22 +168,49 @@ async fn serve_connection(
             .lock()
             .unwrap()
             .push((generation, method.to_string()));
+        // 这一段先接受脚本，再按故障模式丢回包，覆盖“服务端已收到”的不确定结果。
+        // Accept the source before losing the reply to model an uncertain server-side outcome.
+        if method == "Page.addScriptToEvaluateOnNewDocument" || method == "Runtime.evaluate" {
+            let key = if method == "Runtime.evaluate" {
+                "expression"
+            } else {
+                "source"
+            };
+            scripts
+                .lock()
+                .unwrap()
+                .push(message["params"][key].as_str().unwrap().to_string());
+        }
+        if matches!(fault, Fault::RegistrationResponseLost)
+            && method == "Page.addScriptToEvaluateOnNewDocument"
+            && scripts.lock().unwrap().len() == 1
+        {
+            return;
+        }
         if matches!(fault, Fault::ResetOnce) && generation == 1 {
             return;
         }
         if matches!(fault, Fault::AlwaysClose)
             || matches!(fault, Fault::CloseOnce(stage) if generation == 1 && method == stage)
+            || matches!(fault, Fault::RegistrationUnavailable(false) if method == "Page.addScriptToEvaluateOnNewDocument")
         {
             socket.close(None).await.unwrap();
             return;
         }
-        if matches!(fault, Fault::Stall) {
+        if matches!(fault, Fault::Stall)
+            || matches!(fault, Fault::RegistrationUnavailable(true) if method == "Page.addScriptToEvaluateOnNewDocument")
+        {
             std::future::pending::<()>().await;
         }
         let response = if matches!(fault, Fault::BindingExists) && method == "Runtime.addBinding" {
             json!({"id": message["id"], "error": {"code": -32000, "message": "binding already exists"}})
-        } else if matches!(fault, Fault::CommandError) {
+        } else if matches!(fault, Fault::CommandError)
+            || matches!(fault, Fault::RegistrationError)
+                && method == "Page.addScriptToEvaluateOnNewDocument"
+        {
             json!({"id": message["id"], "error": {"code": -32601, "message": "unsupported test command"}})
+        } else if matches!(fault, Fault::ScriptException) && method == "Runtime.evaluate" {
+            json!({"id": message["id"], "result": {"exceptionDetails": {"text": "Uncaught test error"}, "result": {"type": "object"}}})
         } else if method == "Runtime.evaluate" {
             let marker = message["params"]["expression"]
                 .as_str()
@@ -201,7 +252,7 @@ async fn reconnects_before_injection_and_preserves_first_patch_disconnect() {
             vec!["split-items-hotpath-patch".into()]
         };
         let (target, mut client) =
-            prepare_connection(server.port, 5000, &disabled, Some(&binding()))
+            prepare_connection(server.port, 5000, &disabled, Some(&binding()), "void 0;")
                 .await
                 .unwrap();
         assert_eq!(target.id, "main-2");
@@ -216,11 +267,9 @@ async fn reconnects_before_injection_and_preserves_first_patch_disconnect() {
                 .1,
             stage
         );
-        assert_eq!(commands.last().unwrap(), &(2, "Runtime.addBinding".into()));
-        assert!(
-            !commands
-                .iter()
-                .any(|(_, method)| method == "Page.addScriptToEvaluateOnNewDocument")
+        assert_eq!(
+            commands.last().unwrap(),
+            &(2, "Page.addScriptToEvaluateOnNewDocument".into())
         );
         client.close().await;
     }
@@ -232,13 +281,13 @@ async fn reconnects_before_injection_and_preserves_first_patch_disconnect() {
 async fn resets_reconnect_but_command_errors_return_immediately() {
     let disabled = vec!["split-items-hotpath-patch".into()];
     let server = MockCdp::start(Fault::ResetOnce).await;
-    let (target, mut client) = prepare_connection(server.port, 3000, &disabled, None)
+    let (target, mut client) = prepare_connection(server.port, 3000, &disabled, None, "void 0;")
         .await
         .unwrap();
     assert_eq!(target.id, "main-2");
     client.close().await;
     let server = MockCdp::start(Fault::CommandError).await;
-    let error = prepare_connection(server.port, 3000, &disabled, None)
+    let error = prepare_connection(server.port, 3000, &disabled, None, "void 0;")
         .await
         .err()
         .unwrap();
@@ -257,6 +306,7 @@ async fn existing_binding_remains_accepted_without_reconnection() {
         3000,
         &["split-items-hotpath-patch".into()],
         Some(&binding()),
+        "void 0;",
     )
     .await
     .unwrap();
@@ -294,38 +344,109 @@ async fn disconnected_client_keeps_first_command_instead_of_later_binding() {
     client.close().await;
 }
 
-/// 这一段验证真正注册注入脚本后发生的断线不会重放注入。
-/// Verify a disconnect after script registration never replays injection.
+/// 这一段验证注册回包丢失后重新发现页面，功能脚本只在最终会话手动执行一次。
+/// Recover a lost registration response by rediscovering the page and evaluating features once on the final session.
 #[tokio::test]
-async fn script_registration_disconnect_is_not_retried() {
-    let server = MockCdp::start(Fault::CloseOnce("Page.addScriptToEvaluateOnNewDocument")).await;
-    let error = crate::injection::inject(
-        server.port,
-        3000,
-        &["split-items-hotpath-patch".into()],
-        None,
-        None,
-    )
-    .await
-    .err()
-    .unwrap();
-    assert!(format!("{error:#}").contains("Page.addScriptToEvaluateOnNewDocument"));
-    assert_eq!(server.discoveries.load(Ordering::SeqCst), 1);
-    assert!(
-        !server
-            .commands
-            .lock()
-            .unwrap()
+async fn script_registration_disconnect_recovers_before_evaluation() {
+    for fault in [
+        Fault::CloseOnce("Page.addScriptToEvaluateOnNewDocument"),
+        Fault::RegistrationResponseLost,
+    ] {
+        let server = MockCdp::start(fault).await;
+        let result = crate::injection::inject(
+            server.port,
+            3000,
+            &["split-items-hotpath-patch".into()],
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        let generation = if matches!(fault, Fault::RegistrationResponseLost) {
+            1
+        } else {
+            2
+        };
+        assert_eq!(result.target.id, format!("main-{generation}"));
+        let commands = server.commands.lock().unwrap();
+        let evaluations: Vec<_> = commands
             .iter()
-            .any(|(_, method)| method == "Runtime.evaluate")
-    );
+            .filter(|(_, method)| method == "Runtime.evaluate")
+            .collect();
+        assert_eq!(
+            evaluations,
+            vec![&(generation, "Runtime.evaluate".to_string())]
+        );
+        assert_eq!(
+            commands
+                .iter()
+                .filter(|(_, method)| method == "Page.addScriptToEvaluateOnNewDocument")
+                .count(),
+            2
+        );
+        let scripts = server.scripts.lock().unwrap();
+        assert_eq!(scripts.len(), 3);
+        assert!(scripts.windows(2).all(|pair| pair[0] == pair[1]));
+    }
+}
+
+/// 这一段验证正式执行后的断线、脚本异常和注册协议错误不会盲目重放或报告成功。
+/// Never replay or report success for evaluation disconnects, script exceptions or registration protocol errors.
+#[tokio::test]
+async fn execution_failures_and_registration_errors_are_not_retried() {
+    for (fault, expected) in [
+        (Fault::CloseOnce("Runtime.evaluate"), "Runtime.evaluate"),
+        (
+            Fault::ScriptException,
+            "injected script reported an exception",
+        ),
+        (Fault::RegistrationError, "unsupported test command"),
+    ] {
+        let server = MockCdp::start(fault).await;
+        let error = crate::injection::inject(
+            server.port,
+            3000,
+            &["split-items-hotpath-patch".into()],
+            None,
+            None,
+        )
+        .await
+        .err()
+        .unwrap();
+        assert!(format!("{error:#}").contains(expected));
+        assert_eq!(server.discoveries.load(Ordering::SeqCst), 1);
+        let commands = server.commands.lock().unwrap();
+        assert_eq!(
+            commands
+                .iter()
+                .filter(|(_, method)| method == "Page.addScriptToEvaluateOnNewDocument")
+                .count(),
+            1
+        );
+        assert_eq!(
+            commands
+                .iter()
+                .filter(|(_, method)| method == "Runtime.evaluate")
+                .count(),
+            if matches!(fault, Fault::RegistrationError) {
+                0
+            } else {
+                1
+            }
+        );
+    }
 }
 
 /// 这一段验证连续断线和挂起命令均受一个总时限约束，并保留首个失败阶段。
 /// Bound repeated disconnects and stalled commands by one deadline, preserving the first stage.
 #[tokio::test]
 async fn deadline_bounds_retries_and_hung_commands() {
-    for fault in [Fault::AlwaysClose, Fault::Stall] {
+    for fault in [
+        Fault::AlwaysClose,
+        Fault::Stall,
+        Fault::RegistrationUnavailable(false),
+        Fault::RegistrationUnavailable(true),
+    ] {
         let server = MockCdp::start(fault).await;
         let start = Instant::now();
         let error = prepare_connection(
@@ -333,15 +454,24 @@ async fn deadline_bounds_retries_and_hung_commands() {
             1000,
             &["split-items-hotpath-patch".into()],
             None,
+            "void 0;",
         )
         .await
         .err()
         .unwrap();
         let message = format!("{error:#}");
         assert!(message.contains("deadline"), "{message}");
-        assert!(message.contains("Runtime.enable"), "{message}");
+        let stage = if matches!(fault, Fault::RegistrationUnavailable(_)) {
+            "Page.addScriptToEvaluateOnNewDocument"
+        } else {
+            "Runtime.enable"
+        };
+        assert!(message.contains(stage), "{message}");
         assert!(start.elapsed() < Duration::from_millis(1800));
-        if matches!(fault, Fault::AlwaysClose) {
+        if matches!(
+            fault,
+            Fault::AlwaysClose | Fault::RegistrationUnavailable(false)
+        ) {
             assert!(server.discoveries.load(Ordering::SeqCst) >= 2);
             assert!(message.contains("close frame"));
             assert!(!message.contains("Runtime.addBinding"));

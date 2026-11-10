@@ -9,16 +9,17 @@ use tokio::time::{Instant, sleep, timeout, timeout_at};
 /// Bound startup reconnection frequency to avoid spinning during page replacement.
 const RECONNECT_DELAY: Duration = Duration::from_millis(250);
 
-/// 这一段在同一个总时限内重新发现页面，只重试实际注入前的连接丢失。
-/// Rediscover the page within one deadline, retrying connection loss only before injection.
+/// 这一段在同一个总时限内重新发现页面，恢复注册完成前的连接丢失。
+/// Rediscover the page within one deadline, recovering connection loss until script registration completes.
 pub(super) async fn prepare_connection(
     debug_port: u16,
     timeout_ms: u64,
     disabled_systems: &[String],
     native_bridge: Option<&NativeBridgeConfig>,
+    script: &str,
 ) -> anyhow::Result<(CdpTarget, CdpClient)> {
-    // 这一段让发现、连接和 binding 共用截止时间，不为每次重试重新计时。
-    // Share one deadline across discovery, connection and binding instead of resetting it.
+    // 这一段让发现、连接、binding 和脚本注册共用截止时间，不为每次重试重新计时。
+    // Share one deadline across discovery, connection, binding and registration instead of resetting it.
     let deadline = Instant::now() + Duration::from_millis(timeout_ms.max(1000));
     let mut first_failure = None;
     let mut attempt = 0;
@@ -32,6 +33,7 @@ pub(super) async fn prepare_connection(
                 timeout_ms,
                 disabled_systems,
                 native_bridge,
+                script,
                 &mut stage,
             ),
         )
@@ -76,13 +78,14 @@ pub(super) async fn prepare_connection(
     }
 }
 
-/// 这一段准备一次连接；失败或取消时释放会话，不执行功能脚本。
-/// Prepare one connection, releasing it on failure or cancellation without executing features.
+/// 这一段准备一次连接并注册脚本；失败或取消时释放会话，不主动调用功能脚本。
+/// Prepare a connection and register scripts, releasing failed sessions without manually evaluating features.
 async fn prepare_attempt(
     debug_port: u16,
     timeout_ms: u64,
     disabled_systems: &[String],
     native_bridge: Option<&NativeBridgeConfig>,
+    script: &str,
     stage: &mut &'static str,
 ) -> anyhow::Result<(CdpTarget, CdpClient)> {
     // 这一段每次都重新发现主窗口，避免复用启动时已经销毁的 target。
@@ -128,6 +131,15 @@ async fn prepare_attempt(
                 return Err(error);
             }
         }
+        // 这一段把新文档脚本注册纳入启动恢复；默认不立即执行，同一注入标记阻止导航竞态重复启动。
+        // Include new-document registration in startup recovery; deferred execution shares a guard against navigation races.
+        *stage = "Page.addScriptToEvaluateOnNewDocument";
+        client
+            .send(
+                "Page.addScriptToEvaluateOnNewDocument",
+                json!({ "source": script }),
+            )
+            .await?;
         Ok::<(), anyhow::Error>(())
     }
     .await;
