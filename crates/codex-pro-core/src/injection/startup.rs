@@ -43,7 +43,7 @@ pub(super) async fn prepare_connection(
         // Distinguish disconnects from real command failures, which return without retries.
         match result {
             Ok(Ok(connection)) => {
-                log_event(&format!("ready attempt={attempt}")).await;
+                log_event(&format!("prepared attempt={attempt}")).await;
                 return Ok(connection);
             }
             Ok(Err(error)) => {
@@ -155,7 +155,7 @@ async fn prepare_attempt(
 
 /// 这一段把阶段日志写入双击启动器日志，测试不接触用户运行目录。
 /// Persist stage diagnostics for double-click launches without touching user directories in tests.
-async fn log_event(message: &str) {
+pub(super) async fn log_event(message: &str) {
     // 这一段只记录阶段和连接错误，不记录脚本、设置或页面正文。
     // Record stages and connection failures, never scripts, settings or page content.
     eprintln!("[Codex-Pro] injection startup: {message}");

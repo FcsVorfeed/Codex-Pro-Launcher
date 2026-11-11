@@ -68,11 +68,10 @@ pub async fn clear_native_bridge_state(debug_port: u16, bridge_id: &str) {
     // Avoid letting an old worker remove a new worker state.
     if let Some(state) = read_native_bridge_state(debug_port).await
         && !bridge_id.is_empty()
-        && state.native_bridge.bridge_id != bridge_id
+        && state.native_bridge.bridge_id == bridge_id
     {
-        return;
+        let _ = tokio::fs::remove_file(native_bridge_state_path(debug_port)).await;
     }
-    let _ = tokio::fs::remove_file(native_bridge_state_path(debug_port)).await;
 }
 
 /// 这一段返回当前时间文本。

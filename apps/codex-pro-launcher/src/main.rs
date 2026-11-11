@@ -162,12 +162,10 @@ async fn run_launcher(raw_args: Vec<String>) -> Result<()> {
     // Start the hidden bridge worker so the foreground launcher can exit.
     if let Some(config) = bridge_config {
         let worker = codex_pro_bridge::start_or_reuse_native_bridge_worker(
-            options.debug_port,
-            options.timeout_ms,
+            &options,
             config,
-            &options.disabled_systems,
-            options.dev_runtime,
             source_root.as_deref(),
+            &injected,
         )
         .await?;
         println!("Native bridge ready pid={}", worker.pid.unwrap_or_default());

@@ -1,3 +1,5 @@
+mod lifecycle;
+
 use crate::router::{
     dispatch_native_bridge_request, handle_bridge_worker_event, parse_native_bridge_request,
 };
@@ -11,13 +13,14 @@ use codex_pro_core::cdp::{
     CdpClient, CdpTarget, is_auxiliary_codex_page_target, list_targets, wait_for_target,
 };
 use codex_pro_core::native_bridge::NativeBridgeConfig;
+use lifecycle::HeartbeatError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
-use tokio::process::Command;
+use tokio::process::{Child, Command};
 
 /// 这一段定义 worker 心跳新鲜度。
 /// Worker heartbeat freshness window.
@@ -31,9 +34,9 @@ const WORKER_RECONNECT_DELAY_MS: u64 = 1_000;
 /// 这一段定义宠物浮窗补注入扫描间隔。
 /// Pet overlay reinjection scan interval.
 const PET_EVENT_SOUND_OVERLAY_SCAN_INTERVAL_MS: u64 = 1_500;
-/// 这一段定义找不到 Codex target 时的退出窗口。
-/// Exit window when no Codex target is available.
-const WORKER_TARGET_MISSING_EXIT_MS: u128 = 120_000;
+/// 这一段定义全部连接故障共用的无成功心跳退出窗口。
+/// Bound all connection failures by one window without successful heartbeats.
+const WORKER_DISCONNECTED_EXIT_MS: u64 = 120_000;
 /// 这一段定义确认官方 Codex 进程全部退出所需的连续空结果次数。
 /// Consecutive empty process-list results required before treating Codex as exited.
 const WORKER_CODEX_EXIT_EMPTY_STREAK_REQUIRED: u32 = 3;
@@ -45,6 +48,12 @@ const WORKER_CODEX_EXIT_POLL_MS: u64 = 2_000;
 /// Describes the worker startup payload.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct NativeBridgeWorkerPayload {
+    /// 这一段是本次注入标记，用于页面替换后的受控恢复。
+    /// Injection marker for guarded recovery after page replacement.
+    injection_attempt_id: String,
+    /// 这一段是父子进程共享的启动截止时间。
+    /// Startup deadline shared by parent and child.
+    startup_deadline_ms: u64,
     /// 这一段是 CDP 调试端口。
     /// CDP debug port.
     #[serde(rename = "debugPort")]
@@ -94,13 +103,17 @@ fn normalize_disabled_systems(disabled_systems: &[String]) -> Vec<String> {
 /// 这一段启动或复用 native bridge worker。
 /// Start or reuse a native bridge worker.
 pub async fn start_or_reuse_native_bridge_worker(
-    debug_port: u16,
-    timeout_ms: u64,
+    options: &codex_pro_core::args::LauncherOptions,
     native_bridge: NativeBridgeConfig,
-    disabled_systems: &[String],
-    dev_runtime: bool,
     source_root: Option<&Path>,
+    injected: &codex_pro_core::injection::InjectionResult,
 ) -> anyhow::Result<NativeBridgeWorkerStatus> {
+    // 这一段沿用启动器配置，避免父子流程各自选择不同等待预算。
+    // Use launcher options so parent and child do not choose different startup budgets.
+    let debug_port = options.debug_port;
+    let timeout_ms = options.timeout_ms;
+    let dev_runtime = options.dev_runtime;
+    let disabled_systems = &options.disabled_systems;
     // 这一段规整硬禁用系统，确保复用判断和 worker payload 使用同一份稳定配置。
     // Normalize hard-disabled systems so reuse checks and worker payloads share one stable configuration.
     let normalized_disabled_systems = normalize_disabled_systems(disabled_systems);
@@ -123,7 +136,11 @@ pub async fn start_or_reuse_native_bridge_worker(
 
     // 这一段启动同一个 exe 的 worker 模式。
     // Start this same executable in worker mode.
+    let startup_deadline_ms = lifecycle::startup_deadline_ms(timeout_ms);
+    let deadline = lifecycle::local_deadline(startup_deadline_ms);
     let payload = encode_worker_payload(&NativeBridgeWorkerPayload {
+        injection_attempt_id: injected.attempt_id.clone(),
+        startup_deadline_ms,
         debug_port,
         source_root: source_root
             .map(|path| path.to_string_lossy().to_string())
@@ -132,32 +149,32 @@ pub async fn start_or_reuse_native_bridge_worker(
         disabled_systems: normalized_disabled_systems.clone(),
         native_bridge: native_bridge.clone(),
     })?;
-    let pid = spawn_worker_process(&payload, &native_bridge, dev_runtime, source_root).await?;
-    write_native_bridge_state(&NativeBridgeState {
-        debug_port,
-        native_bridge: native_bridge.clone(),
-        disabled_systems: normalized_disabled_systems,
-        pid,
-        started_at: now_text(),
-        worker_heartbeat_at: String::new(),
-    })
-    .await?;
+    let mut child =
+        spawn_worker_process(&payload, &native_bridge, dev_runtime, source_root).await?;
+    let pid = child.id().context("bridge worker missing process id")?;
 
-    // 这一段等待 worker 写入首个心跳。
-    // Wait for the worker's first heartbeat.
-    let deadline =
-        std::time::Instant::now() + Duration::from_millis(timeout_ms.clamp(1_000, 8_000));
-    while std::time::Instant::now() <= deadline {
-        if let Some(state) = read_native_bridge_state(debug_port).await
-            && state.native_bridge.bridge_id == native_bridge.bridge_id
-            && state.pid == pid
-            && heartbeat_is_fresh(&state, WORKER_HEARTBEAT_MAX_AGE_MS)
-        {
-            return Ok(NativeBridgeWorkerStatus { pid: Some(pid) });
+    // 这一段只让 worker 写状态，避免父进程的空心跳覆盖已就绪状态。
+    // Let only the worker write state so the parent cannot overwrite a ready heartbeat with an empty one.
+    let ready = async {
+        loop {
+            if let Some(state) = read_native_bridge_state(debug_port).await
+                && state.native_bridge.bridge_id == native_bridge.bridge_id
+                && state.pid == pid
+                && heartbeat_is_fresh(&state, WORKER_HEARTBEAT_MAX_AGE_MS)
+            {
+                return Ok(());
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
         }
-        tokio::time::sleep(Duration::from_millis(250)).await;
+    };
+    let result = lifecycle::await_owned_worker(&mut child, deadline, ready).await;
+    if let Err(error) = result {
+        clear_native_bridge_state(debug_port, &native_bridge.bridge_id).await;
+        lifecycle::log_event(&format!("startup failed: {error:#}")).await;
+        return Err(error);
     }
-    bail!("Native bridge worker did not report a fresh heartbeat after startup")
+    lifecycle::log_event("ready; heartbeat confirmed").await;
+    Ok(NativeBridgeWorkerStatus { pid: Some(pid) })
 }
 
 /// 这一段从 base64 payload 运行 worker。
@@ -193,10 +210,35 @@ fn apply_worker_payload_source_root(payload: &NativeBridgeWorkerPayload) -> anyh
 /// 这一段运行 native bridge worker 主循环。
 /// Run the native bridge worker loop.
 async fn run_native_bridge_worker(payload: NativeBridgeWorkerPayload) -> anyhow::Result<()> {
+    // 这一段独立监控成功心跳，任何连接错误或挂起都不能无限延长 worker 生命周期。
+    // Monitor successful heartbeats independently so errors or stalled operations cannot keep workers alive forever.
+    let (heartbeat_tx, heartbeat_rx) = tokio::sync::watch::channel(None);
+    let result = tokio::select! {
+        result = run_native_bridge_loop(&payload, &heartbeat_tx) => result,
+        result = lifecycle::watch_heartbeats(heartbeat_rx,
+            lifecycle::local_deadline(payload.startup_deadline_ms),
+            Duration::from_millis(WORKER_DISCONNECTED_EXIT_MS)) => result,
+    };
+    clear_native_bridge_state(payload.debug_port, &payload.native_bridge.bridge_id).await;
+    lifecycle::log_event(if result.is_ok() {
+        "stopped"
+    } else {
+        "stopped after lifecycle failure"
+    })
+    .await;
+    result
+}
+
+/// 这一段维护可重连的主页面会话，退出上限由独立心跳监控负责。
+/// Maintain reconnectable main-page sessions under the independent heartbeat watchdog.
+async fn run_native_bridge_loop(
+    payload: &NativeBridgeWorkerPayload,
+    heartbeat: &tokio::sync::watch::Sender<Option<tokio::time::Instant>>,
+) -> anyhow::Result<()> {
     // 这一段 worker 只持有一个 CDP 连接，断线后短暂等待并重新寻找主窗口。
     // The worker owns one CDP connection and reconnects after disconnects.
-    let mut missing_target_since: Option<std::time::Instant> = None;
     let mut missing_codex_process_streak = 0_u32;
+    let mut logged_failure = false;
     loop {
         // 这一段优先学习 Codex++ 的进程退出确认：官方 Codex 进程连续消失后才释放 worker。
         // Prefer the Codex++-style process-exit confirmation: release the worker only after Codex processes stay absent.
@@ -215,28 +257,35 @@ async fn run_native_bridge_worker(payload: NativeBridgeWorkerPayload) -> anyhow:
             continue;
         }
 
-        match run_native_bridge_session(&payload).await {
-            Ok(()) => {
-                missing_target_since = None;
-            }
-            Err(error) if is_stale_bridge_error(&error) => {
+        match run_native_bridge_session(payload, heartbeat).await {
+            Ok(()) => {}
+            Err(error)
+                if error.downcast_ref::<HeartbeatError>() == Some(&HeartbeatError::Superseded) =>
+            {
+                lifecycle::log_event("page belongs to newer bridge; retiring").await;
                 clear_native_bridge_state(payload.debug_port, &payload.native_bridge.bridge_id)
                     .await;
                 return Ok(());
             }
+            Err(error)
+                if error.downcast_ref::<HeartbeatError>() == Some(&HeartbeatError::Missing) =>
+            {
+                lifecycle::log_event("page config missing; restore guarded injection").await;
+                codex_pro_core::injection::restore_injection(
+                    payload.debug_port,
+                    payload.timeout_ms,
+                    &payload.disabled_systems,
+                    &payload.native_bridge,
+                    worker_payload_source_root(payload),
+                    &payload.injection_attempt_id,
+                )
+                .await
+                .context("bridge handoff injection recovery")?;
+            }
             Err(error) => {
-                if is_missing_target_error(&error) {
-                    let started = *missing_target_since.get_or_insert_with(std::time::Instant::now);
-                    if started.elapsed().as_millis() >= WORKER_TARGET_MISSING_EXIT_MS {
-                        clear_native_bridge_state(
-                            payload.debug_port,
-                            &payload.native_bridge.bridge_id,
-                        )
-                        .await;
-                        return Err(error);
-                    }
-                } else {
-                    missing_target_since = None;
+                if !logged_failure {
+                    lifecycle::log_event(&format!("session failed: {error:#}")).await;
+                    logged_failure = true;
                 }
             }
         }
@@ -265,7 +314,10 @@ fn update_codex_process_missing_streak(
 
 /// 这一段运行单次 bridge CDP 会话。
 /// Run one bridge CDP session.
-async fn run_native_bridge_session(payload: &NativeBridgeWorkerPayload) -> anyhow::Result<()> {
+async fn run_native_bridge_session(
+    payload: &NativeBridgeWorkerPayload,
+    heartbeat: &tokio::sync::watch::Sender<Option<tokio::time::Instant>>,
+) -> anyhow::Result<()> {
     // 这一段连接主 Codex 页面。
     // Connect to the main Codex page.
     let target = wait_for_target(payload.debug_port, payload.timeout_ms).await?;
@@ -287,6 +339,7 @@ async fn run_native_bridge_session(payload: &NativeBridgeWorkerPayload) -> anyho
         return Err(error);
     }
     update_worker_heartbeat(&mut client, payload).await?;
+    heartbeat.send_replace(Some(tokio::time::Instant::now()));
 
     // 这一段准备宠物浮窗补注入脚本；禁用系统时保持为空。
     // Prepare the pet-overlay reinjection script; keep it empty when the system is disabled.
@@ -316,6 +369,7 @@ async fn run_native_bridge_session(payload: &NativeBridgeWorkerPayload) -> anyho
         tokio::select! {
             _ = interval.tick() => {
                 update_worker_heartbeat(&mut client, payload).await?;
+                heartbeat.send_replace(Some(tokio::time::Instant::now()));
             }
             _ = overlay_interval.tick() => {
                 if let Err(error) = scan_pet_event_sound_overlay_targets(
@@ -358,9 +412,11 @@ async fn update_worker_heartbeat(
     let expression = format!(
         r#"(() => {{
   const bridgeId = {};
-  if (window.__codexProNativeBridgeConfig?.bridgeId !== bridgeId) return false;
+   const current = window.__codexProNativeBridgeConfig?.bridgeId;
+   if (typeof current !== "string" || !current) return "missing";
+   if (current !== bridgeId) return "superseded";
   window.__codexProNativeBridgeStatus = {{ bridgeId, updatedAt: Date.now() }};
-  return true;
+   return "ready";
 }})()"#,
         serde_json::to_string(&payload.native_bridge.bridge_id)?,
     );
@@ -374,9 +430,7 @@ async fn update_worker_heartbeat(
             }),
         )
         .await?;
-    if !runtime_evaluate_bool(&response) {
-        bail!("native bridge heartbeat rejected by page config");
-    }
+    lifecycle::check_heartbeat_response(&response)?;
     write_native_bridge_state(&NativeBridgeState {
         debug_port: payload.debug_port,
         native_bridge: payload.native_bridge.clone(),
@@ -522,26 +576,6 @@ async fn has_pet_event_sound_overlay_runtime(client: &mut CdpClient) -> anyhow::
     Ok(runtime_evaluate_bool(&response))
 }
 
-/// 这一段判断错误是否表示当前 worker 已被新 bridge 取代。
-/// Return whether the current worker has been superseded by a newer bridge.
-fn is_stale_bridge_error(error: &anyhow::Error) -> bool {
-    // 这一段只匹配本模块写出的受控错误文本。
-    // Match only the controlled error emitted by this module.
-    error
-        .to_string()
-        .contains("native bridge heartbeat rejected by page config")
-}
-
-/// 这一段判断错误是否表示暂时找不到 Codex 主窗口。
-/// Return whether the error means the Codex main target is temporarily missing.
-fn is_missing_target_error(error: &anyhow::Error) -> bool {
-    // 这一段识别 CDP target 轮询超时，允许 worker 像旧版 Node 一样短暂等待。
-    // Recognize CDP target polling timeouts so the worker can wait like the Node version.
-    error
-        .to_string()
-        .contains("Timed out waiting for CDP target")
-}
-
 /// 这一段读取 Runtime.evaluate 的布尔返回值。
 /// Read the boolean return value from Runtime.evaluate.
 fn runtime_evaluate_bool(response: &Value) -> bool {
@@ -581,7 +615,7 @@ async fn spawn_worker_process(
     native_bridge: &NativeBridgeConfig,
     dev_runtime: bool,
     source_root: Option<&Path>,
-) -> anyhow::Result<u32> {
+) -> anyhow::Result<Child> {
     // 这一段解析 worker 可执行文件；发布模式继续使用当前单 exe，开发模式使用副本避免文件锁。
     // Resolve the worker executable; release uses the current single exe, dev uses a copy to avoid file locks.
     let worker_exe = resolve_worker_executable(native_bridge, dev_runtime, source_root).await?;
@@ -596,7 +630,7 @@ async fn spawn_worker_process(
     let child = command
         .spawn()
         .context("failed to start native bridge worker")?;
-    Ok(child.id().unwrap_or_default())
+    Ok(child)
 }
 
 /// 这一段把源码根传给 worker，保证 private 配置查找不依赖父进程当前目录。

@@ -1,3 +1,4 @@
+mod execution;
 mod startup;
 
 use crate::cdp::{
@@ -16,6 +17,9 @@ pub struct InjectionResult {
     /// 这一段是注入的 CDP target。
     /// Injected CDP target.
     pub target: CdpTarget,
+    /// 这一段把文档级注入标记传给 worker，覆盖启动交接期间的页面替换。
+    /// Carry the document-local injection marker into the worker across page replacement.
+    pub attempt_id: String,
 }
 
 impl InjectionResult {
@@ -323,46 +327,80 @@ pub async fn inject(
     native_bridge: Option<&NativeBridgeConfig>,
     source_root: Option<&Path>,
 ) -> anyhow::Result<InjectionResult> {
-    // 这一段先构建脚本，源码错误无需建立连接或消耗启动重试时间。
-    // Build the script first; source errors need neither a connection nor startup retries.
+    // 这一段只有显式注入才生成新标记；连接恢复和 worker 交接沿用同一个标记。
+    // Generate a marker only for explicit injection; reconnections and worker handoff reuse it.
+    inject_attempt(
+        debug_port,
+        timeout_ms,
+        disabled_systems,
+        native_bridge,
+        source_root,
+        &uuid::Uuid::new_v4().to_string(),
+        false,
+    )
+    .await
+}
+
+/// 这一段在页面被替换后恢复同次注入，不覆盖更新的显式注入。
+/// Restore the same injection after page replacement without replacing newer explicit injection.
+pub async fn restore_injection(
+    debug_port: u16,
+    timeout_ms: u64,
+    disabled_systems: &[String],
+    native_bridge: &NativeBridgeConfig,
+    source_root: Option<&Path>,
+    attempt_id: &str,
+) -> anyhow::Result<InjectionResult> {
+    // 这一段复用生产模板的文档标记、Promise 和失败状态，避免重复执行功能。
+    // Reuse the production template's document marker, promise and failure state to avoid replay.
+    inject_attempt(
+        debug_port,
+        timeout_ms,
+        disabled_systems,
+        Some(native_bridge),
+        source_root,
+        attempt_id,
+        true,
+    )
+    .await
+}
+
+/// 这一段构建同次注入脚本并执行有截止时间的连接恢复。
+/// Build the attempt script and execute connection recovery within a deadline.
+async fn inject_attempt(
+    debug_port: u16,
+    timeout_ms: u64,
+    disabled_systems: &[String],
+    native_bridge: Option<&NativeBridgeConfig>,
+    source_root: Option<&Path>,
+    attempt_id: &str,
+    recovering: bool,
+) -> anyhow::Result<InjectionResult> {
+    // 这一段先生成源码，避免源码错误消耗连接预算；恢复模式由执行模块填入。
+    // Build source before connecting; the execution module fills the recovery mode.
     let source = read_injection_script(disabled_systems, native_bridge, source_root)?;
     // 这一段为本次注入生成独立标记；同一次恢复复用标记，用户再次注入则允许重新执行。
     // Generate a per-injection marker, shared by recovery attempts but renewed for explicit reinjection.
     let script = include_str!("injection/once.js")
         .replace(
             "/* CODEX_PRO_ATTEMPT_ID */",
-            &serde_json::to_string(&uuid::Uuid::new_v4().to_string())?,
+            &serde_json::to_string(attempt_id)?,
         )
         .replace("/* CODEX_PRO_INJECTION_SOURCE */", &source);
-    let (target, mut client) = startup::prepare_connection(
+    let (target, mut client) = execution::execute(
         debug_port,
         timeout_ms,
         disabled_systems,
         native_bridge,
         &script,
+        attempt_id,
+        recovering,
     )
     .await?;
 
-    // 这一段只执行一次实际注入，避免在响应丢失时重放有副作用的脚本。
-    // Execute injection once to avoid replaying side effects after a lost response.
+    // 这一段在主文档确认完成后处理已有辅助窗口，并释放前台注入连接。
+    // Handle existing auxiliary windows after main-document completion and release the foreground socket.
     let result = async {
-        let response = client
-            .send(
-                "Runtime.evaluate",
-                json!({
-                    "expression": script,
-                    "awaitPromise": true,
-                    "allowUnsafeEvalBlockedByCSP": true,
-                }),
-            )
-            .await
-            .context("injection stage Runtime.evaluate")?;
-        // 这一段区分传输成功与脚本成功，不把页面异常当成注入成功，也不输出脚本或用户数据。
-        // Distinguish transport success from script success without logging script source or user data.
-        anyhow::ensure!(
-            response.pointer("/result/exceptionDetails").is_none(),
-            "injection stage Runtime.evaluate: injected script reported an exception"
-        );
         cleanup_auxiliary_codex_targets(debug_port, &target.id).await?;
         inject_pet_event_sound_overlay_targets(
             debug_port,
@@ -376,7 +414,10 @@ pub async fn inject(
     .await;
     client.close().await;
     result?;
-    Ok(InjectionResult { target })
+    Ok(InjectionResult {
+        target,
+        attempt_id: attempt_id.to_string(),
+    })
 }
 
 /// 这一段清理历史误注入到宠物悬浮窗的 DOM。

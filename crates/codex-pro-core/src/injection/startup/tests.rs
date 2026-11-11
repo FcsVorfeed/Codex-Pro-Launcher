@@ -18,6 +18,12 @@ enum Fault {
     /// 这一段保持同一 target 并丢弃首次注册响应，模拟请求已被接受而回包丢失。
     /// Keep the same target and lose the first registration response after accepting its source.
     RegistrationResponseLost,
+    /// 这一段丢弃实际执行的回包，分别覆盖同文档和新文档恢复。
+    /// Lose the evaluation response for same-document and replacement-document recovery.
+    ExecutionResponseLost(bool),
+    /// 这一段持续阻塞实际执行，检查执行阶段也使用总时限。
+    /// Stall execution to verify the shared deadline also covers evaluation.
+    ExecutionStall,
     /// 这一段模拟没有关闭握手的连接重置。
     /// Simulate a reset without a closing handshake.
     ResetOnce,
@@ -133,7 +139,10 @@ async fn serve_connection(
     let request = String::from_utf8_lossy(&prefix[..length]);
     if request.starts_with("GET /json ") {
         let generation = discoveries.fetch_add(1, Ordering::SeqCst) + 1;
-        let generation = if matches!(fault, Fault::RegistrationResponseLost) {
+        let generation = if matches!(
+            fault,
+            Fault::RegistrationResponseLost | Fault::ExecutionResponseLost(true)
+        ) {
             1
         } else {
             generation
@@ -144,7 +153,14 @@ async fn serve_connection(
         }])
         .to_string();
         let mut request_bytes = [0; 4096];
-        stream.read(&mut request_bytes).await.unwrap();
+        // 这一段完整读取 HTTP 头，避免测试依赖 TCP 恰好一次收齐数据。
+        // Read the complete HTTP header instead of assuming one TCP read contains everything.
+        let mut read = 0;
+        while !request_bytes[..read].ends_with(b"\r\n\r\n") {
+            let count = stream.read(&mut request_bytes[read..]).await.unwrap();
+            assert!(count > 0);
+            read += count;
+        }
         stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
         return;
     }
@@ -187,6 +203,18 @@ async fn serve_connection(
         {
             return;
         }
+        if matches!(fault, Fault::ExecutionResponseLost(_))
+            && method == "Runtime.evaluate"
+            && commands
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(_, method)| method == "Runtime.evaluate")
+                .count()
+                == 1
+        {
+            return;
+        }
         if matches!(fault, Fault::ResetOnce) && generation == 1 {
             return;
         }
@@ -198,6 +226,7 @@ async fn serve_connection(
             return;
         }
         if matches!(fault, Fault::Stall)
+            || matches!(fault, Fault::ExecutionStall) && method == "Runtime.evaluate"
             || matches!(fault, Fault::RegistrationUnavailable(true) if method == "Page.addScriptToEvaluateOnNewDocument")
         {
             std::future::pending::<()>().await;
@@ -212,6 +241,25 @@ async fn serve_connection(
         } else if matches!(fault, Fault::ScriptException) && method == "Runtime.evaluate" {
             json!({"id": message["id"], "result": {"exceptionDetails": {"text": "Uncaught test error"}, "result": {"type": "object"}}})
         } else if method == "Runtime.evaluate" {
+            let expression = message["params"]["expression"].as_str().unwrap();
+            // 这一段回传生产脚本里的真实尝试标记；JS 副作用去重另由 VM 执行测试验证。
+            // Echo the production attempt marker; VM execution tests independently verify side-effect deduplication.
+            if let Some(id) = expression
+                .split("const attemptId = ")
+                .nth(1)
+                .and_then(|tail| tail.split(';').next())
+            {
+                let id: Value = serde_json::from_str(id).unwrap();
+                let response = json!({"id": message["id"], "result": {"result": {"type":"object", "value":{"id":id,"complete":true}}}});
+                if socket
+                    .send(Message::Text(response.to_string().into()))
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+                continue;
+            }
             let marker = message["params"]["expression"]
                 .as_str()
                 .unwrap()
@@ -261,8 +309,7 @@ async fn reconnects_before_injection_and_preserves_first_patch_disconnect() {
         assert_eq!(
             commands
                 .iter()
-                .filter(|(generation, _)| *generation == 1)
-                .last()
+                .rfind(|(generation, _)| *generation == 1)
                 .unwrap()
                 .1,
             stage
@@ -390,12 +437,11 @@ async fn script_registration_disconnect_recovers_before_evaluation() {
     }
 }
 
-/// 这一段验证正式执行后的断线、脚本异常和注册协议错误不会盲目重放或报告成功。
-/// Never replay or report success for evaluation disconnects, script exceptions or registration protocol errors.
+/// 这一段验证脚本异常和注册协议错误不会盲目重放或报告成功。
+/// Never replay or report success for script exceptions or registration protocol errors.
 #[tokio::test]
 async fn execution_failures_and_registration_errors_are_not_retried() {
     for (fault, expected) in [
-        (Fault::CloseOnce("Runtime.evaluate"), "Runtime.evaluate"),
         (
             Fault::ScriptException,
             "injected script reported an exception",
@@ -435,6 +481,54 @@ async fn execution_failures_and_registration_errors_are_not_retried() {
             }
         );
     }
+}
+
+/// 这一段覆盖实际执行回包丢失后同文档与新文档恢复，确保不会更换尝试标记。
+/// Recover lost evaluation responses on the same or new document without changing attempt identity.
+#[tokio::test]
+async fn evaluation_response_loss_resumes_same_attempt_on_same_or_new_document() {
+    for same_document in [true, false] {
+        let server = MockCdp::start(Fault::ExecutionResponseLost(same_document)).await;
+        let result = crate::injection::inject(
+            server.port,
+            3000,
+            &["split-items-hotpath-patch".into()],
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        let scripts = server.scripts.lock().unwrap();
+        assert_eq!(scripts.len(), 4);
+        assert!(scripts[2].contains("const recovering = true;"));
+        assert_eq!(
+            scripts[0].replace("const recovering = false;", "const recovering = true;"),
+            scripts[2]
+        );
+        assert_eq!(
+            result.target.id,
+            if same_document { "main-1" } else { "main-2" }
+        );
+    }
+}
+
+/// 这一段确认实际执行挂起不能突破启动总预算。
+/// Ensure a stalled evaluation cannot exceed the startup budget.
+#[tokio::test]
+async fn execution_has_a_bounded_deadline() {
+    let server = MockCdp::start(Fault::ExecutionStall).await;
+    let started = Instant::now();
+    let error = crate::injection::inject(
+        server.port,
+        1000,
+        &["split-items-hotpath-patch".into()],
+        None,
+        None,
+    )
+    .await
+    .unwrap_err();
+    assert!(format!("{error:#}").contains("deadline at Runtime.evaluate"));
+    assert!(started.elapsed() < Duration::from_millis(1800));
 }
 
 /// 这一段验证连续断线和挂起命令均受一个总时限约束，并保留首个失败阶段。
